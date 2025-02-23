@@ -2,17 +2,20 @@ import { useEffect, useState } from "react";
 import { listen } from '@tauri-apps/api/event';
 import "./App.css";
 
+type ActiveWindow = {
+  title: string;
+  appName: string;
+};
+
 
 function App() {
-  const [title, setTitle] = useState("");
+  const [activeWindow, setActiveWindow] = useState("");
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    listen('active-window-changed', (event) => {
+    listen<ActiveWindow>('active-window-changed', (event) => {
       console.log(event);
-      const title = event.payload as string;
-      console.log(`title: ${title}`);
-      setTitle(title);
+      setActiveWindow(`${event.payload.appName}: ${event.payload.title}`);
     });
   }, [])
 
@@ -27,7 +30,7 @@ function App() {
 
   return (
     <main className="container">
-      <h1>Active Window: {title}</h1>
+      <h1>Active Window: {activeWindow}</h1>
       <p>Message: {message}</p>
     </main>
   );

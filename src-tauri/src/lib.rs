@@ -1,3 +1,4 @@
+use serde::Serialize;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
 
@@ -8,7 +9,14 @@ const PRODUCT_ID: u16 = 0xea60; // Arduino product ID
 
 #[derive(Default)]
 struct AppState {
-    current_window: String,
+    current_window: CurrentWindow,
+}
+
+#[derive(Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CurrentWindow {
+    title: String,
+    app_name: String,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -39,21 +47,25 @@ pub fn run() {
 fn track_active_window(handle: &tauri::AppHandle) {
     loop {
         if let Ok(active_window) = get_active_window() {
-            let title = active_window.title;
+            let current_window = CurrentWindow {
+                title: active_window.title,
+                app_name: active_window.app_name,
+            };
 
             // TODO: Skip update if no change
 
             // Update the current window
             let state = handle.state::<Mutex<AppState>>();
             let mut state = state.lock().unwrap();
-            state.current_window = title.clone();
+            state.current_window = current_window.clone();
 
             // Emit an event to notify the frontend
-            handle.emit("active-window-changed", title).unwrap();
+            handle
+                .emit("active-window-changed", current_window)
+                .unwrap();
 
             std::thread::sleep(std::time::Duration::from_secs(1));
         }
-
     }
 }
 
@@ -77,13 +89,14 @@ fn listen_serial(handle: &tauri::AppHandle) {
         if let Some(serial_port) = find_serial_port(VENDOR_ID, PRODUCT_ID) {
             let mut port = match serialport::new(&serial_port, 115200)
                 .timeout(std::time::Duration::from_millis(100))
-                .open() {
-                    Ok(port) => port,
-                    Err(e) => {
-                        println!("Error opening serial port: {}", e);
-                        continue;
-                    }
-                };
+                .open()
+            {
+                Ok(port) => port,
+                Err(e) => {
+                    println!("Error opening serial port: {}", e);
+                    continue;
+                }
+            };
 
             let mut buf: Vec<u8> = vec![0; 1024]; // Buffer to hold the incoming data
             let mut message = String::new(); // String to hold the message
@@ -114,8 +127,8 @@ fn listen_serial(handle: &tauri::AppHandle) {
                             // Do not allow any error that is not a timeout
                             println!("Error reading serial port: {}", e);
                             // Exit to outer loop to attempt to reconnect in order to fix connection issues
-                            break; 
-                        } 
+                            break;
+                        }
                     }
                 }
             }
@@ -125,4 +138,3 @@ fn listen_serial(handle: &tauri::AppHandle) {
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
-
