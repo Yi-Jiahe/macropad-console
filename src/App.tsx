@@ -9,13 +9,16 @@ type ActiveWindow = {
 
 
 function App() {
-  const [activeWindow, setActiveWindow] = useState("");
+  const [activeWindow, setActiveWindow] = useState<ActiveWindow>({
+    title: "",
+    appName: "",
+  });
   const [message, setMessage] = useState("");
 
   useEffect(() => {
     listen<ActiveWindow>('active-window-changed', (event) => {
       console.log(event);
-      setActiveWindow(`${event.payload.appName}: ${event.payload.title}`);
+      setActiveWindow(event.payload);
     });
   }, [])
 
@@ -30,8 +33,13 @@ function App() {
 
   return (
     <main className="container">
-      <h1>Active Window: {activeWindow}</h1>
-      <p>Message: {message}</p>
+      <div>
+        <h2>{activeWindow.appName}</h2>
+        <p>{activeWindow.title}</p>
+      </div>
+      <div>
+        <p>Message: {message}</p>
+      </div>
     </main>
   );
 }
