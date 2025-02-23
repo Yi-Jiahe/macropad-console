@@ -1,8 +1,13 @@
-use serde::Serialize;
 use std::sync::Mutex;
-use tauri::{Emitter, Manager};
+use std::collections::HashMap;
 
 use active_win_pos_rs::get_active_window;
+use dirs::home_dir;
+use anyhow::Result;
+use enigo::{Enigo, Key, Keyboard, Direction};
+use serde::{Deserialize, Serialize};
+use tauri::{Emitter, Manager, State};
+
 
 const VENDOR_ID: u16 = 0x10c4; // Arduino vendor ID
 const PRODUCT_ID: u16 = 0xea60; // Arduino product ID
@@ -10,6 +15,7 @@ const PRODUCT_ID: u16 = 0xea60; // Arduino product ID
 #[derive(Default)]
 struct AppState {
     current_window: CurrentWindow,
+    app_config: AppConfig,
 }
 
 #[derive(Clone, Default, Serialize)]
@@ -17,6 +23,30 @@ struct AppState {
 struct CurrentWindow {
     title: String,
     app_name: String,
+}
+
+type ApplicationProfile = HashMap<String, Vec<char>>;
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppConfig {
+    application_profiles: HashMap<String, ApplicationProfile>,
+}
+
+#[tauri::command]
+fn get_config(state: State<'_, Mutex<AppState>>) -> String {
+    let state = state.lock().unwrap();
+    serde_json::to_string(&state.app_config).unwrap()
+}
+
+#[tauri::command]
+fn save_config(state: State<'_, Mutex<AppState>>, config_json: String) {
+    println!("Saving config: {}", config_json);
+    let mut state = state.lock().unwrap();
+    state.app_config = serde_json::from_str(&config_json).unwrap();
+
+    let config_path = get_config_path();
+    std::fs::write(config_path, config_json).unwrap();
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -27,6 +57,18 @@ pub fn run() {
             app.manage(Mutex::new(AppState::default()));
 
             let handle = app.handle().clone();
+
+            let config = match load_config() {
+                Ok(config) => config,
+                Err(e) => {
+                    eprintln!("Failed to load config: {}", e);
+                    AppConfig::default()
+                }
+            };
+
+            let state = handle.state::<Mutex<AppState>>();
+            let mut state = state.lock().unwrap();
+            state.app_config = config;
 
             let window_tracker_handle = handle.clone();
             std::thread::spawn(move || {
@@ -40,8 +82,23 @@ pub fn run() {
 
             Ok(())
         })
+        .invoke_handler(tauri::generate_handler![
+            get_config,
+            save_config
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+fn get_config_path() -> std::path::PathBuf {
+    home_dir().unwrap().join(".macropad-console").join("config.json")    
+}
+
+fn load_config() -> Result<AppConfig> {
+    let config_path = get_config_path();
+    dbg!(&config_path);
+    let config = std::fs::read_to_string(config_path)?;
+    Ok(serde_json::from_str(&config)?)
 }
 
 fn track_active_window(handle: &tauri::AppHandle) {
@@ -98,6 +155,7 @@ fn listen_serial(handle: &tauri::AppHandle) {
                 }
             };
 
+            // TODO: Figure out a more reliable message structure
             let mut buf: Vec<u8> = vec![0; 1024]; // Buffer to hold the incoming data
             let mut message = String::new(); // String to hold the message
             loop {
@@ -110,6 +168,10 @@ fn listen_serial(handle: &tauri::AppHandle) {
 
                                 // Check if the byte is a newline (end of message)
                                 if byte == b'\n' {
+                                    let state = handle.state::<Mutex<AppState>>();
+                                    let state = state.lock().unwrap();
+                                    handle_message(state.app_config.application_profiles.clone(), state.current_window.app_name.clone(), message.clone().trim().to_string());
+
                                     // Emit an event to notify the frontend
                                     handle.emit("serial-message", message.clone()).unwrap();
 
@@ -136,5 +198,28 @@ fn listen_serial(handle: &tauri::AppHandle) {
 
         // If no serial port is found, wait for 1 second before trying again
         std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+}
+
+fn handle_message(application_profiles: HashMap<String, ApplicationProfile>, app_name: String, message: String) {
+    if let Some(application_profile) = application_profiles.get(&app_name) {
+        println!("Found application profile for app: {}", app_name);
+        dbg!(&message);
+        if let Some(keys) = application_profile.get(&message) {
+            println!("Found keys for message: {}", message);
+            // TODO: Hoist this up so that it doesn't need to be recreated
+            let mut enigo = Enigo::new(&enigo::Settings::default()).unwrap();
+
+            // TODO: Add support for modifiers, key up, key down, figure out how to express chars
+            for key in keys {
+                println!("Sending key: {}", key);
+                enigo.key(Key::Unicode(*key), Direction::Press).unwrap();
+            }
+
+            for key in keys {
+                println!("Sending key: {}", key);
+                enigo.key(Key::Unicode(*key), Direction::Release).unwrap();
+            }
+        }
     }
 }
