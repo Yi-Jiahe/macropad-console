@@ -1,13 +1,12 @@
-use std::sync::Mutex;
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use active_win_pos_rs::get_active_window;
-use dirs::home_dir;
 use anyhow::Result;
-use enigo::{Enigo, Key, Keyboard, Direction};
+use dirs::home_dir;
+use enigo::{Direction, Enigo, Key, Keyboard};
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager, State};
-
 
 const VENDOR_ID: u16 = 0x10c4; // Arduino vendor ID
 const PRODUCT_ID: u16 = 0xea60; // Arduino product ID
@@ -25,7 +24,17 @@ struct CurrentWindow {
     app_name: String,
 }
 
-type ApplicationProfile = HashMap<String, Vec<char>>;
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+struct EncoderConfig {
+    sensitivity: f32,
+    up: char,
+    down: char,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+struct ApplicationProfile {
+    encoder: Option<EncoderConfig>,
+}
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -82,16 +91,16 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
-            get_config,
-            save_config
-        ])
+        .invoke_handler(tauri::generate_handler![get_config, save_config])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
 
 fn get_config_path() -> std::path::PathBuf {
-    home_dir().unwrap().join(".macropad-console").join("config.json")    
+    home_dir()
+        .unwrap()
+        .join(".macropad-console")
+        .join("config.json")
 }
 
 fn load_config() -> Result<AppConfig> {
@@ -170,10 +179,11 @@ fn listen_serial(handle: &tauri::AppHandle) {
                                 if byte == b'\n' {
                                     let state = handle.state::<Mutex<AppState>>();
                                     let state = state.lock().unwrap();
-                                    handle_message(state.app_config.application_profiles.clone(), state.current_window.app_name.clone(), message.clone().trim().to_string());
-
-                                    // Emit an event to notify the frontend
-                                    handle.emit("serial-message", message.clone()).unwrap();
+                                    handle_message(
+                                        state.app_config.application_profiles.clone(),
+                                        state.current_window.app_name.clone(),
+                                        message.clone().trim().to_string(),
+                                    );
 
                                     // Clear the message
                                     message.clear();
@@ -201,24 +211,36 @@ fn listen_serial(handle: &tauri::AppHandle) {
     }
 }
 
-fn handle_message(application_profiles: HashMap<String, ApplicationProfile>, app_name: String, message: String) {
+fn handle_message(
+    application_profiles: HashMap<String, ApplicationProfile>,
+    app_name: String,
+    message: String,
+) {
     if let Some(application_profile) = application_profiles.get(&app_name) {
-        println!("Found application profile for app: {}", app_name);
         dbg!(&message);
-        if let Some(keys) = application_profile.get(&message) {
-            println!("Found keys for message: {}", message);
-            // TODO: Hoist this up so that it doesn't need to be recreated
-            let mut enigo = Enigo::new(&enigo::Settings::default()).unwrap();
+        let [encoder_count, pot_x, pot_y] = message
+        .split(",")
+        .map(|s| s.parse::<i32>().unwrap())
+        .collect::<Vec<i32>>()[..] else { return };
 
-            // TODO: Add support for modifiers, key up, key down, figure out how to express chars
-            for key in keys {
-                println!("Sending key: {}", key);
-                enigo.key(Key::Unicode(*key), Direction::Press).unwrap();
-            }
+        let mut enigo = Enigo::new(&enigo::Settings::default()).unwrap();
 
-            for key in keys {
-                println!("Sending key: {}", key);
-                enigo.key(Key::Unicode(*key), Direction::Release).unwrap();
+        if let Some(encoder_config) = &application_profile.encoder {
+            if encoder_count != 0 {
+                dbg!(encoder_count);
+
+                let times = ((encoder_count as f32) * encoder_config.sensitivity).abs().floor() as i32;
+                dbg!(times);
+
+                let key = if encoder_count > 0 {
+                    encoder_config.up
+                } else {
+                    encoder_config.down
+                };
+
+                for _ in 1..=times {
+                    enigo.key(Key::Unicode(key), Direction::Click).unwrap();
+                }
             }
         }
     }
