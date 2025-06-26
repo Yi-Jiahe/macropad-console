@@ -8,8 +8,10 @@ use enigo::{Direction, Enigo, Key, Keyboard};
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager, State};
 
-const VENDOR_ID: u16 = 0x10c4; // Arduino vendor ID
-const PRODUCT_ID: u16 = 0xea60; // Arduino product ID
+const VENDOR_ID: u16 = 0x1209;
+const PRODUCT_ID: u16 = 0x001;
+const USAGE_PAGE: u16 = 0xFF;
+const USAGE: u16 = 0x01;
 
 #[derive(Default)]
 struct AppState {
@@ -86,7 +88,7 @@ pub fn run() {
 
             let serial_handle = handle.clone();
             std::thread::spawn(move || {
-                listen_serial(&serial_handle);
+                listen_hid(&serial_handle);
             });
 
             Ok(())
@@ -129,119 +131,98 @@ fn track_active_window(handle: &tauri::AppHandle) {
             handle
                 .emit("active-window-changed", current_window)
                 .unwrap();
-
-            std::thread::sleep(std::time::Duration::from_secs(1));
-        }
-    }
-}
-
-fn find_serial_port(vendor_id: u16, product_id: u16) -> Option<String> {
-    for port_info in &serialport::available_ports().unwrap() {
-        dbg!(&port_info);
-        if let serialport::SerialPortType::UsbPort(usb_port_info) = &port_info.port_type {
-            if usb_port_info.vid == vendor_id && usb_port_info.pid == product_id {
-                return Some(port_info.port_name.clone());
-            }
-        }
-    }
-
-    None
-}
-
-fn listen_serial(handle: &tauri::AppHandle) {
-    loop {
-        // Attempt to find a connected device
-        println!("Searching for serial port...");
-        if let Some(serial_port) = find_serial_port(VENDOR_ID, PRODUCT_ID) {
-            let mut port = match serialport::new(&serial_port, 115200)
-                .timeout(std::time::Duration::from_millis(100))
-                .open()
-            {
-                Ok(port) => port,
-                Err(e) => {
-                    println!("Error opening serial port: {}", e);
-                    continue;
-                }
-            };
-
-            // TODO: Figure out a more reliable message structure
-            let mut buf: Vec<u8> = vec![0; 1024]; // Buffer to hold the incoming data
-            let mut message = String::new(); // String to hold the message
-            loop {
-                match port.read(&mut buf) {
-                    Ok(t) => {
-                        if t > 0 {
-                            // Convert the bytes read into a string and append to the message
-                            for i in 0..t {
-                                let byte = buf[i];
-
-                                // Check if the byte is a newline (end of message)
-                                if byte == b'\n' {
-                                    let state = handle.state::<Mutex<AppState>>();
-                                    let state = state.lock().unwrap();
-                                    handle_message(
-                                        state.app_config.application_profiles.clone(),
-                                        state.current_window.app_name.clone(),
-                                        message.clone().trim().to_string(),
-                                    );
-
-                                    // Clear the message
-                                    message.clear();
-                                }
-
-                                // Otherwise, append the byte to the message
-                                message.push(byte as char);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        if e.kind() != std::io::ErrorKind::TimedOut {
-                            // Do not allow any error that is not a timeout
-                            println!("Error reading serial port: {}", e);
-                            // Exit to outer loop to attempt to reconnect in order to fix connection issues
-                            break;
-                        }
-                    }
-                }
-            }
         }
 
-        // If no serial port is found, wait for 1 second before trying again
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 
-fn handle_message(
+fn listen_hid(handle: &tauri::AppHandle) {
+    loop {
+        let api = hidapi::HidApi::new().unwrap();
+        // Print out information about all connected devices
+        for device_info in api.device_list() {
+            if device_info.vendor_id() == VENDOR_ID
+                && device_info.product_id() == PRODUCT_ID
+                && device_info.usage_page() == USAGE_PAGE
+                && device_info.usage() == USAGE
+            {
+                if let Ok(device) = device_info.open_device(&api) {
+                    device.set_blocking_mode(false).unwrap();
+
+                    let mut buf: [u8; 1] = [0u8; 1]; // Buffer to hold the incoming data
+                    loop {
+                        match device.read(&mut buf[..]) {
+                            Ok(0) => {
+                                // No data read
+                                // Sleep for a short duration to avoid busy-waiting
+                                std::thread::sleep(std::time::Duration::from_millis(1));
+                            }
+                            Ok(n_bytes) => {
+                                println!("Read: {:?}", &buf[..n_bytes]);
+
+                                let state = handle.state::<Mutex<AppState>>();
+                                let state = state.lock().unwrap();
+
+                                handle_report(
+                                    state.app_config.application_profiles.clone(),
+                                    state.current_window.app_name.clone(),
+                                    buf,
+                                );
+                            }
+                            Err(e) => {
+                                eprintln!(
+                                    "Failed to read from device: VID: 0x{:04x}, PID: 0x{:04x}, Error: {}",
+                                    device_info.vendor_id(),
+                                    device_info.product_id(),
+                                    e
+                                );
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    eprintln!(
+                        "Failed to open device: VID: 0x{:04x}, PID: 0x{:04x}",
+                        device_info.vendor_id(),
+                        device_info.product_id()
+                    );
+                    continue;
+                }
+            }
+        }
+    }
+}
+
+fn handle_report(
     application_profiles: HashMap<String, ApplicationProfile>,
     app_name: String,
-    message: String,
+    report: [u8; 1],
 ) {
     if let Some(application_profile) = application_profiles.get(&app_name) {
-        dbg!(&message);
-        let [encoder_count, pot_x, pot_y] = message
-        .split(",")
-        .map(|s| s.parse::<i32>().unwrap())
-        .collect::<Vec<i32>>()[..] else { return };
+        let buttons = report;
 
         let mut enigo = Enigo::new(&enigo::Settings::default()).unwrap();
 
         if let Some(encoder_config) = &application_profile.encoder {
-            if encoder_count != 0 {
-                dbg!(encoder_count);
+            // if encoder_count != 0 {
+            //     dbg!(encoder_count);
 
-                let times = ((encoder_count as f32) * encoder_config.sensitivity).abs().floor() as i32;
-                dbg!(times);
+            //     let times = ((encoder_count as f32) * encoder_config.sensitivity)
+            //         .abs()
+            //         .floor() as i32;
+            //     dbg!(times);
 
-                let key = if encoder_count > 0 {
-                    encoder_config.up
-                } else {
-                    encoder_config.down
-                };
+            //     let key = if encoder_count > 0 {
+            //         encoder_config.up
+            //     } else {
+            //         encoder_config.down
+            //     };
 
-                for _ in 1..=times {
-                    enigo.key(Key::Unicode(key), Direction::Click).unwrap();
-                }
-            }
+            //     for _ in 1..=times {
+            //         enigo.key(Key::Unicode(key), Direction::Click).unwrap();
+            //     }
+            // }
         }
     }
 }
