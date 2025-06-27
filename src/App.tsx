@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from '@tauri-apps/api/event';
 import "./App.css";
+import { RadialMenu } from "./RadialMenu";
 
 type ActiveWindow = {
   title: string;
@@ -42,20 +43,24 @@ function App() {
   };
 
   return (
-    <main className="container">
-      <div>
-        <h2>{activeWindow.appName}</h2>
-        <p>{activeWindow.title}</p>
-      </div>
-      <form onSubmit={(e) => e.preventDefault()}>
-        <textarea value={appConfig} onChange={(e) => setAppConfig(e.target.value)} />
-        <button onClick={async () => setAppConfig(await invoke('get_config') as string)}>Reload Config</button>
-        <button onClick={saveConfig}>Submit</button>
-      </form>
-      <div>
-        <p>Message: {message}</p>
-      </div>
-    </main>
+    <>
+      <RadialMenu />
+      <main className="container">
+        <div>
+          <h2>{activeWindow.appName}</h2>
+          <p>{activeWindow.title}</p>
+        </div>
+        <form onSubmit={(e) => e.preventDefault()}>
+          <textarea value={appConfig} onChange={(e) => setAppConfig(e.target.value)} />
+          <button onClick={async () => setAppConfig(await invoke('get_config') as string)}>Reload Config</button>
+          <button onClick={saveConfig}>Submit</button>
+        </form>
+        <div>
+          <p>Message: {message}</p>
+        </div>
+      </main>
+    </>
+
   );
 }
 

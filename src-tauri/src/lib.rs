@@ -1,17 +1,19 @@
-use std::collections::HashMap;
 use std::sync::Mutex;
 
 use active_win_pos_rs::get_active_window;
 use anyhow::Result;
 use dirs::home_dir;
 use enigo::{Direction, Enigo, Key, Keyboard};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tauri::{Emitter, Manager, State};
 
 pub mod config;
+pub mod events;
 pub mod hid;
-use crate::config::{AppConfig, ApplicationProfile};
-use crate::hid::{VENDOR_ID, PRODUCT_ID, USAGE_PAGE, USAGE};
+pub mod macropad_state;
+use crate::config::{Action, AppConfig, ApplicationAction, ApplicationProfile};
+use crate::hid::{PRODUCT_ID, USAGE, USAGE_PAGE, VENDOR_ID};
+use crate::macropad_state::{ButtonState, MacropadState};
 
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,6 +45,9 @@ pub fn run() {
         .setup(|app| {
             app.manage(Mutex::new(CurrentWindow::default()));
             app.manage(Mutex::new(AppConfig::default()));
+            app.manage(Mutex::new(MacropadState {
+                buttons: [ButtonState::None; 12],
+            }));
 
             let handle = app.handle().clone();
 
@@ -138,16 +143,33 @@ fn listen_hid(handle: &tauri::AppHandle) {
                             Ok(n_bytes) => {
                                 println!("Read: {:?}", &buf[..n_bytes]);
 
-                                let state_app_config = handle.state::<Mutex<AppConfig>>();
-                                let state_app_config = state_app_config.lock().unwrap();
-                                let state_current_window = handle.state::<Mutex<CurrentWindow>>();
-                                let state_current_window = state_current_window.lock().unwrap();
+                                let application_profile = {
+                                    let state_app_config = handle.state::<Mutex<AppConfig>>();
+                                    let state_app_config = state_app_config.lock().unwrap();
+                                    let state_current_window =
+                                        handle.state::<Mutex<CurrentWindow>>();
+                                    let state_current_window = state_current_window.lock().unwrap();
+                                    match state_app_config
+                                        .application_profiles
+                                        .get(&state_current_window.app_name)
+                                    {
+                                        Some(profile) => Some(profile.clone()),
+                                        None => None,
+                                    }
+                                };
 
-                                handle_report(
-                                    state_app_config.application_profiles.clone(),
-                                    state_current_window.app_name.clone(),
+                                let state_macropad_state = handle.state::<Mutex<MacropadState>>();
+                                let mut state_macropad_state = state_macropad_state.lock().unwrap();
+
+                                let new_macropad_state = handle_report(
+                                    handle,
+                                    &application_profile,
+                                    state_macropad_state.clone(),
                                     buf,
                                 );
+
+                                // Update the macropad state
+                                *state_macropad_state = new_macropad_state;
                             }
                             Err(e) => {
                                 // TODO: Continue on recoverable error, break on unrecoverable error, e.g disconnected device
@@ -175,34 +197,95 @@ fn listen_hid(handle: &tauri::AppHandle) {
 }
 
 fn handle_report(
-    application_profiles: HashMap<String, ApplicationProfile>,
-    app_name: String,
+    handle: &tauri::AppHandle,
+    application_profile: &Option<ApplicationProfile>,
+    macropad_state: MacropadState,
     report: [u8; 1],
+) -> MacropadState {
+    let [buttons] = report;
+    let mut new_macropad_state = macropad_state.clone();
+
+    for i in 0..8 {
+        let button_pressed = (buttons & (1 << i)) != 0;
+
+        match (macropad_state.buttons[i], button_pressed) {
+            (ButtonState::None, true) => {
+                println!("Button {} pressed", i);
+                perform_action(
+                    handle,
+                    application_profile,
+                    Action::ButtonPress { button: i as u8 },
+                );
+                // Button was pressed
+                new_macropad_state.buttons[i] = ButtonState::Held {
+                    pressed_at: std::time::Instant::now(),
+                };
+            }
+            (ButtonState::Held { pressed_at: _ }, false) => {
+                println!("Button {} released", i);
+                perform_action(
+                    handle,
+                    application_profile,
+                    Action::ButtonRelease { button: i as u8 },
+                );
+                // Button was released
+                new_macropad_state.buttons[i] = ButtonState::None; // Reset to none state
+            }
+            _ => {}
+        }
+    }
+
+    return new_macropad_state;
+}
+
+fn perform_action(
+    handle: &tauri::AppHandle,
+    application_profile: &Option<ApplicationProfile>,
+    action: Action,
 ) {
-    if let Some(application_profile) = application_profiles.get(&app_name) {
-        let buttons = report;
+    dbg!(&action);
+    dbg!(&application_profile);
+    if application_profile.is_none() {
+        return;
+    }
 
-        let mut enigo = Enigo::new(&enigo::Settings::default()).unwrap();
+    let profile = application_profile.as_ref().unwrap();
 
-        if let Some(encoder_config) = &application_profile.encoder {
-            // if encoder_count != 0 {
-            //     dbg!(encoder_count);
+    // Handle actions not in profile
+    match action {
+        Action::ButtonRelease { button } => {
+            let config_action = Action::ButtonPress { button };
+            if let Some((_, application_action)) =
+                profile.actions.iter().find(|(a, _)| *a == config_action)
+            {
+                match application_action {
+                    ApplicationAction::KeyPress { .. } => {
+                        // Explicitly do nothing
+                    }
+                    ApplicationAction::OpenRadialMenu { .. } => {
+                        handle.emit("hide-radial-menu", ()).unwrap();
+                    }
+                }
+            }
+            return;
+        }
+        _ => {}
+    }
 
-            //     let times = ((encoder_count as f32) * encoder_config.sensitivity)
-            //         .abs()
-            //         .floor() as i32;
-            //     dbg!(times);
-
-            //     let key = if encoder_count > 0 {
-            //         encoder_config.up
-            //     } else {
-            //         encoder_config.down
-            //     };
-
-            //     for _ in 1..=times {
-            //         enigo.key(Key::Unicode(key), Direction::Click).unwrap();
-            //     }
-            // }
+    // Find action in profile
+    if let Some((_, application_action)) = profile.actions.iter().find(|(a, _)| *a == action) {
+        match application_action {
+            ApplicationAction::OpenRadialMenu { items } => {
+                let event = events::ShowRadialMenu {
+                    items: items.iter().map(|item| (**item).clone()).collect(),
+                };
+                println!("Emitting radial menu event: {:?}", event);
+                handle.emit("show-radial-menu", event).unwrap();
+            }
+            ApplicationAction::KeyPress { key } => {
+                // let mut enigo = Enigo::new();
+                // enigo.key_click(Key::Layout(key.clone()));
+            }
         }
     }
 }
