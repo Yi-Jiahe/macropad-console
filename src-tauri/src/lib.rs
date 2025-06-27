@@ -8,10 +8,10 @@ use enigo::{Direction, Enigo, Key, Keyboard};
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager, State};
 
-const VENDOR_ID: u16 = 0x1209;
-const PRODUCT_ID: u16 = 0x001;
-const USAGE_PAGE: u16 = 0xFF;
-const USAGE: u16 = 0x01;
+pub mod config;
+pub mod hid;
+use crate::config::{AppConfig, ApplicationProfile};
+use crate::hid::{VENDOR_ID, PRODUCT_ID, USAGE_PAGE, USAGE};
 
 #[derive(Default)]
 struct AppState {
@@ -24,24 +24,6 @@ struct AppState {
 struct CurrentWindow {
     title: String,
     app_name: String,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-struct EncoderConfig {
-    sensitivity: f32,
-    up: char,
-    down: char,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-struct ApplicationProfile {
-    encoder: Option<EncoderConfig>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AppConfig {
-    application_profiles: HashMap<String, ApplicationProfile>,
 }
 
 #[tauri::command]
@@ -171,6 +153,7 @@ fn listen_hid(handle: &tauri::AppHandle) {
                                 );
                             }
                             Err(e) => {
+                                // TODO: Continue on recoverable error, break on unrecoverable error, e.g disconnected device
                                 eprintln!(
                                     "Failed to read from device: VID: 0x{:04x}, PID: 0x{:04x}, Error: {}",
                                     device_info.vendor_id(),
