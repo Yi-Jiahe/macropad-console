@@ -13,12 +13,6 @@ pub mod hid;
 use crate::config::{AppConfig, ApplicationProfile};
 use crate::hid::{VENDOR_ID, PRODUCT_ID, USAGE_PAGE, USAGE};
 
-#[derive(Default)]
-struct AppState {
-    current_window: CurrentWindow,
-    app_config: AppConfig,
-}
-
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CurrentWindow {
@@ -27,16 +21,16 @@ struct CurrentWindow {
 }
 
 #[tauri::command]
-fn get_config(state: State<'_, Mutex<AppState>>) -> String {
+fn get_config(state: State<'_, Mutex<AppConfig>>) -> String {
     let state = state.lock().unwrap();
-    serde_json::to_string(&state.app_config).unwrap()
+    serde_json::to_string(&*state).unwrap()
 }
 
 #[tauri::command]
-fn save_config(state: State<'_, Mutex<AppState>>, config_json: String) {
+fn save_config(state: State<'_, Mutex<AppConfig>>, config_json: String) {
     println!("Saving config: {}", config_json);
     let mut state = state.lock().unwrap();
-    state.app_config = serde_json::from_str(&config_json).unwrap();
+    *state = serde_json::from_str(&config_json).unwrap();
 
     let config_path = get_config_path();
     std::fs::write(config_path, config_json).unwrap();
@@ -47,7 +41,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
-            app.manage(Mutex::new(AppState::default()));
+            app.manage(Mutex::new(CurrentWindow::default()));
+            app.manage(Mutex::new(AppConfig::default()));
 
             let handle = app.handle().clone();
 
@@ -59,9 +54,9 @@ pub fn run() {
                 }
             };
 
-            let state = handle.state::<Mutex<AppState>>();
-            let mut state = state.lock().unwrap();
-            state.app_config = config;
+            let state_app_config = handle.state::<Mutex<AppConfig>>();
+            let mut state_app_config = state_app_config.lock().unwrap();
+            *state_app_config = config;
 
             let window_tracker_handle = handle.clone();
             std::thread::spawn(move || {
@@ -105,9 +100,9 @@ fn track_active_window(handle: &tauri::AppHandle) {
             // TODO: Skip update if no change
 
             // Update the current window
-            let state = handle.state::<Mutex<AppState>>();
-            let mut state = state.lock().unwrap();
-            state.current_window = current_window.clone();
+            let state_current_window = handle.state::<Mutex<CurrentWindow>>();
+            let mut state_current_window = state_current_window.lock().unwrap();
+            *state_current_window = current_window.clone();
 
             // Emit an event to notify the frontend
             handle
@@ -143,12 +138,14 @@ fn listen_hid(handle: &tauri::AppHandle) {
                             Ok(n_bytes) => {
                                 println!("Read: {:?}", &buf[..n_bytes]);
 
-                                let state = handle.state::<Mutex<AppState>>();
-                                let state = state.lock().unwrap();
+                                let state_app_config = handle.state::<Mutex<AppConfig>>();
+                                let state_app_config = state_app_config.lock().unwrap();
+                                let state_current_window = handle.state::<Mutex<CurrentWindow>>();
+                                let state_current_window = state_current_window.lock().unwrap();
 
                                 handle_report(
-                                    state.app_config.application_profiles.clone(),
-                                    state.current_window.app_name.clone(),
+                                    state_app_config.application_profiles.clone(),
+                                    state_current_window.app_name.clone(),
                                     buf,
                                 );
                             }
