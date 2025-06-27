@@ -43,11 +43,12 @@ export function RadialMenu() {
         return;
       }
 
+      // Set origin to twelve o'clock
       if (angle < -Math.PI / 2) angle += 2 * Math.PI;
-      angle += Math.PI / 2; // Adjust so 0 is at top
-
-      console.log("angle", angle);
-      console.log("items length", items.length);
+      angle += Math.PI / 2;
+      // Rotate origin by section size / 2
+      angle += (2 * Math.PI / items.length) / 2;
+      angle %= 2 * Math.PI;
 
       // Find which section
       const section = Math.floor((angle / (2 * Math.PI)) * items.length) % items.length;
