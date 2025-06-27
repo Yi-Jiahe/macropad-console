@@ -40,10 +40,12 @@ fn save_config(state: State<'_, Mutex<AppConfig>>, config_json: String) {
 
 #[tauri::command]
 fn handle_action(action: ApplicationAction) {
-    match action {
-        ApplicationAction::KeyPress { key } => handle_keypress(key),
-        _ => (),
+    if !matches!(action, ApplicationAction::KeyTap { .. } | ApplicationAction::MacroTap { .. }) {
+        println!("Unsupported action: {action:?}");
+        return;
     }
+
+    handle_key_action(action);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -83,7 +85,11 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_config, save_config, handle_action])
+        .invoke_handler(tauri::generate_handler![
+            get_config,
+            save_config,
+            handle_action
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -265,8 +271,9 @@ fn perform_action(
                 profile.actions.iter().find(|(a, _)| *a == config_action)
             {
                 match application_action {
-                    ApplicationAction::KeyPress { .. } => {
-                        // Explicitly do nothing
+                    ApplicationAction::KeyPress { key } => {
+                        let complement_action = ApplicationAction::KeyRelease { key: key.to_string() };
+                        handle_key_action(complement_action);
                     }
                     ApplicationAction::OpenRadialMenu { .. } => {
                         handle.emit("hide-radial-menu", ()).unwrap();
@@ -294,20 +301,58 @@ fn perform_action(
                 println!("Emitting radial menu event: {:?}", event);
                 handle.emit("show-radial-menu", event).unwrap();
             }
-            ApplicationAction::KeyPress { key } => {
-                handle_keypress(key.clone());
+            ApplicationAction::KeyPress { .. } | ApplicationAction::KeyTap { .. } | ApplicationAction::MacroTap { .. } => {
+                handle_key_action(application_action.clone());
             }
             _ => {}
         }
     }
 }
 
-fn handle_keypress(key: String) {
-    // convert key to char
-    let key = key.to_lowercase().chars().next().unwrap();
+fn handle_key_action(action: ApplicationAction) {
+    if !matches!(
+        action,
+        ApplicationAction::KeyPress { .. }
+            | ApplicationAction::KeyTap { .. }
+            | ApplicationAction::KeyRelease { .. }
+            | ApplicationAction::MacroTap { .. }
+    ) {
+        println!("Unsupported action: {action:?}");
+        return;
+    };
 
     let mut enigo = Enigo::new(&Settings::default()).unwrap();
-    println!("Pressing key: {}", key);
-    dbg!(Key::Unicode(key));
-    enigo.key(Key::Unicode(key), Direction::Click).unwrap();
+
+    match action {
+        ApplicationAction::KeyTap { key } => {
+            enigo.key(key_to_enigo_key(&key), Direction::Click).unwrap();
+        }
+        ApplicationAction::KeyPress { key } => {
+            enigo.key(key_to_enigo_key(&key), Direction::Press).unwrap();
+        }
+        ApplicationAction::KeyRelease { key } => {
+            enigo
+                .key(key_to_enigo_key(&key), Direction::Release)
+                .unwrap();
+        },
+        ApplicationAction::MacroTap { keys } => {
+            for key in &keys {
+                enigo.key(key_to_enigo_key(&key), Direction::Press).unwrap();
+            }
+            for key in keys.iter().rev() {
+                enigo.key(key_to_enigo_key(&key), Direction::Release).unwrap();
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+fn key_to_enigo_key(key: &str) -> Key {
+    match key.to_uppercase().as_str() {
+        "SHIFT" => return Key::Shift,
+        "CTRL" => return Key::Control,
+        "ALT" => return Key::Alt,
+        "META" => return Key::Meta,
+        key => Key::Unicode(key.to_lowercase().chars().next().unwrap())
+    }
 }

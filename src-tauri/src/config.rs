@@ -7,8 +7,12 @@ use serde::{Deserialize, Serialize};
 pub enum ApplicationAction {
     OpenRadialMenu { items: Vec<Box<RadialMenuItem>> },
     KeyPress { key: String },
+    KeyTap { key: String },
+    MacroTap { keys: Vec<String> },
+    // Not for use in config
     #[default]
     None,
+    KeyRelease { key: String },
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
