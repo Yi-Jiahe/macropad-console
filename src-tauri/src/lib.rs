@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use active_win_pos_rs::get_active_window;
 use anyhow::Result;
 use dirs::home_dir;
-use enigo::{Direction, Enigo, Key, Keyboard};
+use enigo::{Direction, Enigo, Key, Keyboard, Mouse, Settings};
 use serde::Serialize;
 use tauri::{Emitter, Manager, State};
 
@@ -36,6 +36,14 @@ fn save_config(state: State<'_, Mutex<AppConfig>>, config_json: String) {
 
     let config_path = get_config_path();
     std::fs::write(config_path, config_json).unwrap();
+}
+
+#[tauri::command]
+fn handle_action(action: ApplicationAction) {
+    match action {
+        ApplicationAction::KeyPress { key } => handle_keypress(key),
+        _ => (),
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -75,7 +83,7 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_config, save_config])
+        .invoke_handler(tauri::generate_handler![get_config, save_config, handle_action])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -243,8 +251,6 @@ fn perform_action(
     application_profile: &Option<ApplicationProfile>,
     action: Action,
 ) {
-    dbg!(&action);
-    dbg!(&application_profile);
     if application_profile.is_none() {
         return;
     }
@@ -265,6 +271,7 @@ fn perform_action(
                     ApplicationAction::OpenRadialMenu { .. } => {
                         handle.emit("hide-radial-menu", ()).unwrap();
                     }
+                    _ => {}
                 }
             }
             return;
@@ -276,16 +283,31 @@ fn perform_action(
     if let Some((_, application_action)) = profile.actions.iter().find(|(a, _)| *a == action) {
         match application_action {
             ApplicationAction::OpenRadialMenu { items } => {
+                let enigo = Enigo::new(&Settings::default()).unwrap();
+                let mouse_location = enigo.location().unwrap();
+
                 let event = events::ShowRadialMenu {
+                    location: mouse_location,
                     items: items.iter().map(|item| (**item).clone()).collect(),
                 };
+
                 println!("Emitting radial menu event: {:?}", event);
                 handle.emit("show-radial-menu", event).unwrap();
             }
             ApplicationAction::KeyPress { key } => {
-                // let mut enigo = Enigo::new();
-                // enigo.key_click(Key::Layout(key.clone()));
+                handle_keypress(key.clone());
             }
+            _ => {}
         }
     }
+}
+
+fn handle_keypress(key: String) {
+    // convert key to char
+    let key = key.to_lowercase().chars().next().unwrap();
+
+    let mut enigo = Enigo::new(&Settings::default()).unwrap();
+    println!("Pressing key: {}", key);
+    dbg!(Key::Unicode(key));
+    enigo.key(Key::Unicode(key), Direction::Click).unwrap();
 }

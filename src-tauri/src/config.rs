@@ -2,11 +2,13 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ApplicationAction {
     OpenRadialMenu { items: Vec<Box<RadialMenuItem>> },
     KeyPress { key: String },
+    #[default]
+    None,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -24,13 +26,15 @@ pub struct AppConfig {
 #[serde(rename_all = "camelCase")]
 pub struct RadialMenuItem {
     pub label: String,
-    pub actions: Vec<ApplicationAction>,
+    pub action: ApplicationAction,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq, Hash)]
 #[serde(rename_all = "camelCase")]
 pub enum Action {
     ButtonPress { button: u8 },
     // Not for use in config
+    #[default]
+    None,
     ButtonRelease { button: u8 },
 }

@@ -12,9 +12,21 @@
   "app": {
     "windows": [
       {
-        "title": "macropad-console",
+        "title": "Macropad Console",
         "width": 800,
         "height": 600
+      },
+      {
+        "title": "radial-menu",
+        "url": "radial-menu.html",
+        "label": "radial-menu",
+        "visible": false,
+        "alwaysOnTop": true,
+        "transparent": true,
+        "decorations": false,
+        "shadow": false,
+        "width": 300,
+        "height": 300
       }
     ],
     "security": {

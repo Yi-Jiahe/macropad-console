@@ -1,13 +1,10 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from '@tauri-apps/api/event';
+import { ActiveWindow } from "./types";
 import "./App.css";
-import { RadialMenu } from "./RadialMenu";
 
-type ActiveWindow = {
-  title: string;
-  appName: string;
-};
+
 
 function App() {
   const [activeWindow, setActiveWindow] = useState<ActiveWindow>({
@@ -44,7 +41,6 @@ function App() {
 
   return (
     <>
-      <RadialMenu />
       <main className="container">
         <div>
           <h2>{activeWindow.appName}</h2>
