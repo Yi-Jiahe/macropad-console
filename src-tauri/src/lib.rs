@@ -21,7 +21,7 @@ pub mod macropad_state;
 use crate::config::{
     get_config_path, load_config, Action, AppConfig, ApplicationAction, ApplicationProfile,
 };
-use crate::hid::{PRODUCT_ID, USAGE, USAGE_PAGE, VENDOR_ID};
+use crate::hid::{PRODUCT_ID, USAGE, USAGE_PAGE, VENDOR_ID, handle_report};
 use crate::macropad_state::{ButtonState, MacropadState};
 
 #[derive(Clone, Default, Serialize)]
@@ -255,15 +255,15 @@ fn listen_hid(handle: &tauri::AppHandle) {
                                 let state_macropad_state = handle.state::<Mutex<MacropadState>>();
                                 let mut state_macropad_state = state_macropad_state.lock().unwrap();
 
-                                let new_macropad_state = handle_report(
-                                    handle,
-                                    &application_profile,
+                                let (new_macropad_state, action) = handle_report(
                                     state_macropad_state.clone(),
                                     buf,
                                 );
 
                                 // Update the macropad state
                                 *state_macropad_state = new_macropad_state;
+
+                                perform_action(handle, &application_profile, action);
                             }
                             Err(e) => {
                                 // TODO: Continue on recoverable error, break on unrecoverable error, e.g disconnected device
@@ -288,84 +288,6 @@ fn listen_hid(handle: &tauri::AppHandle) {
             }
         }
     }
-}
-
-fn handle_report(
-    handle: &tauri::AppHandle,
-    application_profile: &Option<ApplicationProfile>,
-    macropad_state: MacropadState,
-    report: [u8; 2],
-) -> MacropadState {
-    // First 12 bits of the report
-    let buttons = ((report[1] as u16) << 8) | (report[0] as u16);
-    // Next 2 bits as a 2 bit signed integer
-    let mut encoders = vec![(report[1] >> 4) & 0b11].into_iter().map(|x| match x {
-        0b00 => 0,
-        0b01 => 1,
-        0b11 => -1,
-        _ => {
-            eprintln!("Invalid encoder value: {}", x);
-            0
-        }
-    });
-
-    let mut new_macropad_state = macropad_state.clone();
-
-    for i in 0..12 {
-        let button_pressed = (buttons & (1 << i)) != 0;
-
-        match (macropad_state.buttons[i], button_pressed) {
-            (ButtonState::None, true) => {
-                println!("Button {} pressed", i);
-                perform_action(
-                    handle,
-                    application_profile,
-                    Action::ButtonPress { button: i as u8 },
-                );
-                // Button was pressed
-                new_macropad_state.buttons[i] = ButtonState::Held {
-                    pressed_at: std::time::Instant::now(),
-                };
-            }
-            (ButtonState::Held { pressed_at: _ }, false) => {
-                println!("Button {} released", i);
-                perform_action(
-                    handle,
-                    application_profile,
-                    Action::ButtonRelease { button: i as u8 },
-                );
-                // Button was released
-                new_macropad_state.buttons[i] = ButtonState::None; // Reset to none state
-            }
-            _ => {}
-        }
-    }
-
-    for i in 0..encoders.clone().count() {
-        let encoder_state = encoders.nth(i).unwrap();
-        match (macropad_state.encoders[i], encoder_state) {
-            (0, 1) => {
-                println!("Encoder {} incremented", i);
-                perform_action(
-                    handle,
-                    application_profile,
-                    Action::EncoderIncrement { id: i as u8 },
-                );
-            }
-            (0, -1) => {
-                println!("Encoder {} decremented", i);
-                perform_action(
-                    handle,
-                    application_profile,
-                    Action::EncoderDecrement { id: i as u8 },
-                );
-            }
-            _ => {}
-        }
-        new_macropad_state.encoders[i] = encoder_state;
-    }
-
-    return new_macropad_state;
 }
 
 fn perform_action(
