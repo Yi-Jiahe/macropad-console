@@ -1,7 +1,6 @@
 use std::sync::Mutex;
 
 use anyhow::Result;
-use dirs::home_dir;
 use enigo::{Direction, Enigo, Key, Keyboard, Mouse, Settings};
 use regex::Regex;
 use serde::Serialize;
@@ -19,7 +18,7 @@ pub mod config;
 pub mod events;
 pub mod hid;
 pub mod macropad_state;
-use crate::config::{Action, AppConfig, ApplicationAction, ApplicationProfile};
+use crate::config::{get_config_path, load_config, Action, AppConfig, ApplicationAction, ApplicationProfile};
 use crate::hid::{PRODUCT_ID, USAGE, USAGE_PAGE, VENDOR_ID};
 use crate::macropad_state::{ButtonState, MacropadState};
 
@@ -32,7 +31,17 @@ struct CurrentWindow {
 
 #[tauri::command]
 fn get_config(state: State<'_, Mutex<AppConfig>>) -> String {
-    let state = state.lock().unwrap();
+        let config = match load_config() {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!("Failed to load config: {}", e);
+            AppConfig::default()
+        }
+    };
+
+    let mut state = state.lock().unwrap();
+    *state = config;
+
     serde_json::to_string(&*state).unwrap()
 }
 
@@ -105,20 +114,6 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
-
-fn get_config_path() -> std::path::PathBuf {
-    home_dir()
-        .unwrap()
-        .join(".macropad-console")
-        .join("config.json")
-}
-
-fn load_config() -> Result<AppConfig> {
-    let config_path = get_config_path();
-    dbg!(&config_path);
-    let config = std::fs::read_to_string(config_path)?;
-    Ok(serde_json::from_str(&config)?)
 }
 
 fn track_active_window(handle: &tauri::AppHandle) {

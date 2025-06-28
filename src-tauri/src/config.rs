@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use anyhow::Result;
+use dirs::home_dir;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -43,4 +45,18 @@ pub enum Action {
     #[default]
     None,
     ButtonRelease { button: u8 },
+}
+
+pub fn get_config_path() -> std::path::PathBuf {
+    home_dir()
+        .unwrap()
+        .join(".macropad-console")
+        .join("config.json")
+}
+
+pub fn load_config() -> Result<AppConfig> {
+    let config_path = get_config_path();
+    dbg!(&config_path);
+    let config = std::fs::read_to_string(config_path)?;
+    Ok(serde_json::from_str(&config)?)
 }
