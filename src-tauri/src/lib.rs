@@ -146,7 +146,7 @@ fn listen_hid(handle: &tauri::AppHandle) {
                 if let Ok(device) = device_info.open_device(&api) {
                     device.set_blocking_mode(false).unwrap();
 
-                    let mut buf: [u8; 1] = [0u8; 1]; // Buffer to hold the incoming data
+                    let mut buf: [u8; 2] = [0u8; 2]; // Buffer to hold the incoming data
                     loop {
                         match device.read(&mut buf[..]) {
                             Ok(0) => {
@@ -214,12 +214,12 @@ fn handle_report(
     handle: &tauri::AppHandle,
     application_profile: &Option<ApplicationProfile>,
     macropad_state: MacropadState,
-    report: [u8; 1],
+    report: [u8; 2],
 ) -> MacropadState {
-    let [buttons] = report;
+    let buttons = ((report[1] as u16) << 8) | (report[0] as u16);
     let mut new_macropad_state = macropad_state.clone();
 
-    for i in 0..8 {
+    for i in 0..12 {
         let button_pressed = (buttons & (1 << i)) != 0;
 
         match (macropad_state.buttons[i], button_pressed) {
@@ -349,6 +349,8 @@ fn handle_key_action(action: ApplicationAction) {
 
 fn key_to_enigo_key(key: &str) -> Key {
     match key.to_uppercase().as_str() {
+        "ESC" => return Key::Escape,
+        "DEL" => return Key::Delete,
         "SHIFT" => return Key::Shift,
         "CTRL" => return Key::Control,
         "ALT" => return Key::Alt,
