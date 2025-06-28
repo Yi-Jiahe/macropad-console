@@ -153,7 +153,7 @@ fn track_active_window(handle: &tauri::AppHandle) {
             }
         };
 
-        std::thread::sleep(std::time::Duration::from_secs(1));
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
 }
 
