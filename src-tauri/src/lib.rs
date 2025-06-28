@@ -133,17 +133,20 @@ fn track_active_window(handle: &tauri::AppHandle) {
             }
         } {
             Ok(current_window) => {
-                println!("Current window: {}", current_window.title);
-
-                // Update the current window
                 let state_current_window = handle.state::<Mutex<CurrentWindow>>();
                 let mut state_current_window = state_current_window.lock().unwrap();
-                *state_current_window = current_window.clone();
 
-                // Emit an event to notify the frontend
-                handle
-                    .emit("active-window-changed", current_window)
-                    .unwrap();
+                if state_current_window.title != current_window.title {
+                    // Update the current window
+
+                    println!("Current window: {}", current_window.title);
+                    *state_current_window = current_window.clone();
+
+                    // Emit an event to notify the frontend
+                    handle
+                        .emit("active-window-changed", current_window)
+                        .unwrap();
+                }
             }
             Err(e) => {
                 println!("Failed to get current window: {}", e);
