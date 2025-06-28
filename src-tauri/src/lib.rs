@@ -1,11 +1,19 @@
 use std::sync::Mutex;
 
-use active_win_pos_rs::get_active_window;
 use anyhow::Result;
 use dirs::home_dir;
 use enigo::{Direction, Enigo, Key, Keyboard, Mouse, Settings};
+use regex::Regex;
 use serde::Serialize;
 use tauri::{Emitter, Manager, State};
+use windows::{
+    Win32::Foundation::HWND,
+    Win32::System::ProcessStatus::K32GetModuleBaseNameW,
+    Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ},
+    Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId,
+    },
+};
 
 pub mod config;
 pub mod events;
@@ -119,41 +127,78 @@ fn track_active_window(handle: &tauri::AppHandle) {
     println!("OS: {}", os);
 
     loop {
-        if let Ok(current_window) = match os {
-            "windows" => {
-                if let Ok(active_window) = get_active_window() {
-                    println!(
-                        "Application: {}, Window title: {}",
-                        active_window.app_name, active_window.title
-                    );
-
-                    let current_window = CurrentWindow {
-                        title: active_window.title,
-                        app_name: active_window.app_name,
-                    };
-                    Ok(current_window)
-                } else {
-                    println!("Failed to get active window");
-                    Err(anyhow::anyhow!("Failed to get active window"))
-                }
-            }
+        match (match os {
+            "windows" => get_current_window_windows(),
             _ => {
                 println!("Unsupported OS");
                 break;
             }
-        } {
-            // Update the current window
-            let state_current_window = handle.state::<Mutex<CurrentWindow>>();
-            let mut state_current_window = state_current_window.lock().unwrap();
-            *state_current_window = current_window.clone();
+        }) {
+            Ok(current_window) => {
+                // Update the current window
+                let state_current_window = handle.state::<Mutex<CurrentWindow>>();
+                let mut state_current_window = state_current_window.lock().unwrap();
+                *state_current_window = current_window.clone();
 
-            // Emit an event to notify the frontend
-            handle
-                .emit("active-window-changed", current_window)
-                .unwrap();
-        }
+                // Emit an event to notify the frontend
+                handle
+                    .emit("active-window-changed", current_window)
+                    .unwrap();
+            }
+            Err(e) => {
+                println!("Failed to get current window: {}", e);
+            }
+        };
 
         std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+}
+
+fn get_current_window_windows() -> Result<CurrentWindow> {
+    unsafe {
+        let hwnd: HWND = GetForegroundWindow();
+        if hwnd.0 == std::ptr::null_mut() {
+            println!("Failed to get foreground window");
+            anyhow::bail!("Failed to get foreground window");
+        }
+
+        // Get window title
+        let mut title = [0u16; 256];
+        let len = GetWindowTextW(hwnd, &mut title);
+        let title = String::from_utf16_lossy(&title[..len as usize]);
+        println!("Title: {}", title);
+
+        // Get process ID
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+
+        // Open process
+        let h_process = match OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) {
+            Ok(h_process) => h_process,
+            Err(e) => {
+                println!("Failed to open process: {}", e);
+                return Ok(CurrentWindow {
+                    title,
+                    app_name: "".to_string(),
+                });
+            }
+        };
+        if h_process.0 == std::ptr::null_mut() {
+            return Ok(CurrentWindow {
+                title,
+                app_name: "".to_string(),
+            });
+        }
+
+        // Get process name
+        let mut exe_name = [0u16; 260];
+        let len = K32GetModuleBaseNameW(h_process, None, &mut exe_name);
+        let exe_name = String::from_utf16_lossy(&exe_name[..len as usize]);
+
+        return Ok(CurrentWindow {
+            title,
+            app_name: exe_name,
+        });
     }
 }
 
@@ -187,13 +232,22 @@ fn listen_hid(handle: &tauri::AppHandle) {
                                     let state_current_window =
                                         handle.state::<Mutex<CurrentWindow>>();
                                     let state_current_window = state_current_window.lock().unwrap();
-                                    match state_app_config
-                                        .application_profiles
-                                        .get(&state_current_window.app_name)
-                                    {
-                                        Some(profile) => Some(profile.clone()),
-                                        None => None,
-                                    }
+
+                                    // Iterate over all profiles and match regex against window title
+                                    // First matching profile is taken
+                                    state_app_config.application_profiles.iter().find_map(
+                                        |(pattern, profile)| {
+                                            if let Ok(re) = Regex::new(pattern) {
+                                                if re.is_match(&state_current_window.title) {
+                                                    Some(profile.clone())
+                                                } else {
+                                                    None
+                                                }
+                                            } else {
+                                                None
+                                            }
+                                        },
+                                    )
                                 };
 
                                 let state_macropad_state = handle.state::<Mutex<MacropadState>>();
