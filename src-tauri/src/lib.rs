@@ -443,6 +443,9 @@ fn handle_macro_tap(actions: &Vec<ApplicationAction>) {
                 println!("Tapping key: {}", key);
                 enigo.key(key_to_enigo_key(&key), Direction::Click).unwrap();
             }
+            ApplicationAction::Delay { ms } => {
+                std::thread::sleep(std::time::Duration::from_millis(*ms));
+            }
             _ => {
                 println!("Unsupported action: {action:?}");
             }

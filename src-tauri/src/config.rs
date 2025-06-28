@@ -10,6 +10,7 @@ pub enum ApplicationAction {
     KeyTap { key: String },
     // Should not include OpenRadialMenu
     MacroTap { actions: Vec<ApplicationAction> },
+    Delay { ms: u64 },
     // Not for use in config
     #[default]
     None,
