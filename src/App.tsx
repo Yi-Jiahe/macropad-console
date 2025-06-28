@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from '@tauri-apps/api/event';
-import { ActiveWindow } from "./types";
-import "./App.css";
-
+import { ActiveWindow, ApplicationConfig } from "./types"
+import ApplicationConfigElement from "./ApplicationConfigElement";
+import CssBaseline from "@mui/material/CssBaseline";
+import Button from "@mui/material/Button";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
 
 
 function App() {
@@ -11,8 +14,7 @@ function App() {
     title: "",
     appName: "",
   });
-  const [message, setMessage] = useState("");
-  const [appConfig, setAppConfig] = useState("");
+  const [applicationConfig, setApplicationConfig] = useState<ApplicationConfig | undefined>();
   useEffect(() => {
     listen<ActiveWindow>('active-window-changed', (event) => {
       console.log(event);
@@ -20,41 +22,33 @@ function App() {
     });
   }, [])
 
-  useEffect(() => {
-    listen('serial-message', (event) => {
-      console.log(event);
-      const message = event.payload as string;
-      console.log(`message: ${message}`);
-      setMessage(message);
+  const getConfig = async () => {
+    return invoke<string>('get_config').then((configJson) => {
+      console.log(configJson);
+      setApplicationConfig(JSON.parse(configJson) as ApplicationConfig);
     });
-  }, [])
+  };
 
   useEffect(() => {
-    invoke('get_config').then((config) => {
-      setAppConfig(config as string);
-    });
+    getConfig();
   }, [])
 
   const saveConfig = async () => {
-    await invoke('save_config', { configJson: appConfig });
+    await invoke('save_config', { configJson: JSON.stringify(applicationConfig) });
+    await getConfig();
   };
 
   return (
     <>
-      <main className="container">
-        <div>
-          <h2>{activeWindow.appName}</h2>
-          <p>{activeWindow.title}</p>
-        </div>
-        <form onSubmit={(e) => e.preventDefault()}>
-          <textarea value={appConfig} onChange={(e) => setAppConfig(e.target.value)} />
-          <button onClick={async () => setAppConfig(await invoke('get_config') as string)}>Reload Config</button>
-          <button onClick={saveConfig}>Submit</button>
-        </form>
-        <div>
-          <p>Message: {message}</p>
-        </div>
-      </main>
+      <CssBaseline />
+      <Box>
+        <Box>
+          <Typography variant="h5">{activeWindow.title}</Typography>
+          <Typography variant="body1">{activeWindow.appName}</Typography>
+        </Box>
+        <Button onClick={getConfig}>Reload Config</Button>
+        {applicationConfig && <ApplicationConfigElement applicationConfig={applicationConfig} saveConfig={saveConfig} />}
+      </Box>
     </>
 
   );
