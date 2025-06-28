@@ -8,7 +8,8 @@ pub enum ApplicationAction {
     OpenRadialMenu { items: Vec<Box<RadialMenuItem>> },
     KeyPress { key: String },
     KeyTap { key: String },
-    MacroTap { keys: Vec<String> },
+    // Should not include OpenRadialMenu
+    MacroTap { actions: Vec<ApplicationAction> },
     // Not for use in config
     #[default]
     None,

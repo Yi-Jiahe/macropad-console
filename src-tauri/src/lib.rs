@@ -40,12 +40,17 @@ fn save_config(state: State<'_, Mutex<AppConfig>>, config_json: String) {
 
 #[tauri::command]
 fn handle_action(action: ApplicationAction) {
-    if !matches!(action, ApplicationAction::KeyTap { .. } | ApplicationAction::MacroTap { .. }) {
-        println!("Unsupported action: {action:?}");
-        return;
+    match action {
+        ApplicationAction::KeyTap { .. } => {
+            handle_key_action(action);
+        }
+        ApplicationAction::MacroTap { actions } => {
+            handle_macro_tap(&actions);
+        }
+        _ => {
+            println!("Unsupported action: {action:?}");
+        }
     }
-
-    handle_key_action(action);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -301,8 +306,11 @@ fn perform_action(
                 println!("Emitting radial menu event: {:?}", event);
                 handle.emit("show-radial-menu", event).unwrap();
             }
-            ApplicationAction::KeyPress { .. } | ApplicationAction::KeyTap { .. } | ApplicationAction::MacroTap { .. } => {
+            ApplicationAction::KeyPress { .. } | ApplicationAction::KeyTap { .. } => {
                 handle_key_action(application_action.clone());
+            }
+            ApplicationAction::MacroTap { actions } => {
+                handle_macro_tap(actions);
             }
             _ => {}
         }
@@ -315,7 +323,6 @@ fn handle_key_action(action: ApplicationAction) {
         ApplicationAction::KeyPress { .. }
             | ApplicationAction::KeyTap { .. }
             | ApplicationAction::KeyRelease { .. }
-            | ApplicationAction::MacroTap { .. }
     ) {
         println!("Unsupported action: {action:?}");
         return;
@@ -325,25 +332,45 @@ fn handle_key_action(action: ApplicationAction) {
 
     match action {
         ApplicationAction::KeyTap { key } => {
+            println!("Tapping key: {}", key);
             enigo.key(key_to_enigo_key(&key), Direction::Click).unwrap();
         }
         ApplicationAction::KeyPress { key } => {
+            println!("Pressing key: {}", key);
             enigo.key(key_to_enigo_key(&key), Direction::Press).unwrap();
         }
         ApplicationAction::KeyRelease { key } => {
+            println!("Releasing key: {}", key);
             enigo
-                .key(key_to_enigo_key(&key), Direction::Release)
-                .unwrap();
-        },
-        ApplicationAction::MacroTap { keys } => {
-            for key in &keys {
-                enigo.key(key_to_enigo_key(&key), Direction::Press).unwrap();
-            }
-            for key in keys.iter().rev() {
-                enigo.key(key_to_enigo_key(&key), Direction::Release).unwrap();
-            }
+                .key(key_to_enigo_key(&key), Direction::Release).unwrap();
         }
         _ => unreachable!(),
+    }
+}
+
+fn handle_macro_tap(actions: &Vec<ApplicationAction>) {
+    let mut enigo = Enigo::new(&Settings::default()).unwrap();
+
+    for action in actions.iter() {
+        match action {
+            ApplicationAction::KeyPress { key } => {
+                println!("Pressing key: {}", key);
+                enigo.key(key_to_enigo_key(&key), Direction::Press).unwrap();
+            }
+            ApplicationAction::KeyRelease { key } => {
+                println!("Releasing key: {}", key);
+                enigo
+                    .key(key_to_enigo_key(&key), Direction::Release)
+                    .unwrap();
+            }
+            ApplicationAction::KeyTap { key } => {
+                println!("Tapping key: {}", key);
+                enigo.key(key_to_enigo_key(&key), Direction::Click).unwrap();
+            }
+            _ => {
+                println!("Unsupported action: {action:?}");
+            },
+        }
     }
 }
 
