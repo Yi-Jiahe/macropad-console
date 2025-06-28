@@ -114,15 +114,34 @@ fn load_config() -> Result<AppConfig> {
 }
 
 fn track_active_window(handle: &tauri::AppHandle) {
+    let os = std::env::consts::OS;
+
+    println!("OS: {}", os);
+
     loop {
-        if let Ok(active_window) = get_active_window() {
-            let current_window = CurrentWindow {
-                title: active_window.title,
-                app_name: active_window.app_name,
-            };
+        if let Ok(current_window) = match os {
+            "windows" => {
+                if let Ok(active_window) = get_active_window() {
+                    println!(
+                        "Application: {}, Window title: {}",
+                        active_window.app_name, active_window.title
+                    );
 
-            // TODO: Skip update if no change
-
+                    let current_window = CurrentWindow {
+                        title: active_window.title,
+                        app_name: active_window.app_name,
+                    };
+                    Ok(current_window)
+                } else {
+                    println!("Failed to get active window");
+                    Err(anyhow::anyhow!("Failed to get active window"))
+                }
+            }
+            _ => {
+                println!("Unsupported OS");
+                break;
+            }
+        } {
             // Update the current window
             let state_current_window = handle.state::<Mutex<CurrentWindow>>();
             let mut state_current_window = state_current_window.lock().unwrap();
@@ -277,7 +296,9 @@ fn perform_action(
             {
                 match application_action {
                     ApplicationAction::KeyPress { key } => {
-                        let complement_action = ApplicationAction::KeyRelease { key: key.to_string() };
+                        let complement_action = ApplicationAction::KeyRelease {
+                            key: key.to_string(),
+                        };
                         handle_key_action(complement_action);
                     }
                     ApplicationAction::OpenRadialMenu { .. } => {
@@ -342,7 +363,8 @@ fn handle_key_action(action: ApplicationAction) {
         ApplicationAction::KeyRelease { key } => {
             println!("Releasing key: {}", key);
             enigo
-                .key(key_to_enigo_key(&key), Direction::Release).unwrap();
+                .key(key_to_enigo_key(&key), Direction::Release)
+                .unwrap();
         }
         _ => unreachable!(),
     }
@@ -369,7 +391,7 @@ fn handle_macro_tap(actions: &Vec<ApplicationAction>) {
             }
             _ => {
                 println!("Unsupported action: {action:?}");
-            },
+            }
         }
     }
 }
@@ -382,6 +404,6 @@ fn key_to_enigo_key(key: &str) -> Key {
         "CTRL" => return Key::Control,
         "ALT" => return Key::Alt,
         "META" => return Key::Meta,
-        key => Key::Unicode(key.to_lowercase().chars().next().unwrap())
+        key => Key::Unicode(key.to_lowercase().chars().next().unwrap()),
     }
 }
