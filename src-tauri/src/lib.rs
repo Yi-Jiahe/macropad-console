@@ -18,7 +18,9 @@ pub mod config;
 pub mod events;
 pub mod hid;
 pub mod macropad_state;
-use crate::config::{get_config_path, load_config, Action, AppConfig, ApplicationAction, ApplicationProfile};
+use crate::config::{
+    get_config_path, load_config, Action, AppConfig, ApplicationAction, ApplicationProfile,
+};
 use crate::hid::{PRODUCT_ID, USAGE, USAGE_PAGE, VENDOR_ID};
 use crate::macropad_state::{ButtonState, MacropadState};
 
@@ -31,7 +33,7 @@ struct CurrentWindow {
 
 #[tauri::command]
 fn get_config(state: State<'_, Mutex<AppConfig>>) -> String {
-        let config = match load_config() {
+    let config = match load_config() {
         Ok(config) => config,
         Err(e) => {
             eprintln!("Failed to load config: {}", e);
@@ -79,6 +81,7 @@ pub fn run() {
             app.manage(Mutex::new(AppConfig::default()));
             app.manage(Mutex::new(MacropadState {
                 buttons: [ButtonState::None; 12],
+                encoders: [0; 1],
             }));
 
             let handle = app.handle().clone();
@@ -122,14 +125,16 @@ fn track_active_window(handle: &tauri::AppHandle) {
     println!("OS: {}", os);
 
     loop {
-        match (match os {
+        match match os {
             "windows" => get_current_window_windows(),
             _ => {
                 println!("Unsupported OS");
                 break;
             }
-        }) {
+        } {
             Ok(current_window) => {
+                println!("Current window: {}", current_window.title);
+
                 // Update the current window
                 let state_current_window = handle.state::<Mutex<CurrentWindow>>();
                 let mut state_current_window = state_current_window.lock().unwrap();
@@ -161,7 +166,6 @@ fn get_current_window_windows() -> Result<CurrentWindow> {
         let mut title = [0u16; 256];
         let len = GetWindowTextW(hwnd, &mut title);
         let title = String::from_utf16_lossy(&title[..len as usize]);
-        println!("Title: {}", title);
 
         // Get process ID
         let mut pid = 0u32;
@@ -289,7 +293,19 @@ fn handle_report(
     macropad_state: MacropadState,
     report: [u8; 2],
 ) -> MacropadState {
+    // First 12 bits of the report
     let buttons = ((report[1] as u16) << 8) | (report[0] as u16);
+    // Next 2 bits as a 2 bit signed integer
+    let mut encoders = vec![(report[1] >> 4) & 0b11].into_iter().map(|x| match x {
+        0b00 => 0,
+        0b01 => 1,
+        0b11 => -1,
+        _ => {
+            eprintln!("Invalid encoder value: {}", x);
+            0
+        }
+    });
+
     let mut new_macropad_state = macropad_state.clone();
 
     for i in 0..12 {
@@ -320,6 +336,30 @@ fn handle_report(
             }
             _ => {}
         }
+    }
+
+    for i in 0..encoders.clone().count() {
+        let encoder_state = encoders.nth(i).unwrap();
+        match (macropad_state.encoders[i], encoder_state) {
+            (0, 1) => {
+                println!("Encoder {} incremented", i);
+                perform_action(
+                    handle,
+                    application_profile,
+                    Action::EncoderIncrement { id: i as u8 },
+                );
+            }
+            (0, -1) => {
+                println!("Encoder {} decremented", i);
+                perform_action(
+                    handle,
+                    application_profile,
+                    Action::EncoderDecrement { id: i as u8 },
+                );
+            }
+            _ => {}
+        }
+        new_macropad_state.encoders[i] = encoder_state;
     }
 
     return new_macropad_state;

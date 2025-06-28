@@ -6,7 +6,8 @@ pub enum ButtonState {
   }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct MacropadState {
   pub buttons: [ButtonState; 12],
+  pub encoders: [i8; 1],
 }

@@ -41,6 +41,8 @@ pub struct RadialMenuItem {
 #[serde(rename_all = "camelCase")]
 pub enum Action {
     ButtonPress { button: u8 },
+    EncoderDecrement { id: u8 },
+    EncoderIncrement { id: u8 },
     // Not for use in config
     #[default]
     None,
