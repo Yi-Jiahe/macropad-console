@@ -21,7 +21,7 @@ pub mod macropad_state;
 use crate::config::{
     get_config_path, load_config, Action, AppConfig, ApplicationAction, ApplicationProfile,
 };
-use crate::hid::{PRODUCT_ID, USAGE, USAGE_PAGE, VENDOR_ID, handle_report};
+use crate::hid::{handle_report, PRODUCT_ID, USAGE, USAGE_PAGE, VENDOR_ID};
 use crate::macropad_state::{ButtonState, MacropadState};
 
 #[derive(Clone, Default, Serialize)]
@@ -33,6 +33,8 @@ struct CurrentWindow {
 
 #[tauri::command]
 fn get_config(state: State<'_, Mutex<AppConfig>>) -> String {
+    let mut state = state.lock().unwrap();
+
     let config = match load_config() {
         Ok(config) => config,
         Err(e) => {
@@ -41,7 +43,6 @@ fn get_config(state: State<'_, Mutex<AppConfig>>) -> String {
         }
     };
 
-    let mut state = state.lock().unwrap();
     *state = config;
 
     serde_json::to_string(&*state).unwrap()
@@ -76,14 +77,13 @@ fn handle_action(action: ApplicationAction) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .manage(Mutex::new(CurrentWindow::default()))
+        .manage(Mutex::new(AppConfig::default()))
+        .manage(Mutex::new(MacropadState {
+            buttons: [ButtonState::None; 12],
+            encoders: [0; 1],
+        }))
         .setup(|app| {
-            app.manage(Mutex::new(CurrentWindow::default()));
-            app.manage(Mutex::new(AppConfig::default()));
-            app.manage(Mutex::new(MacropadState {
-                buttons: [ButtonState::None; 12],
-                encoders: [0; 1],
-            }));
-
             let handle = app.handle().clone();
 
             let config = match load_config() {
@@ -255,10 +255,8 @@ fn listen_hid(handle: &tauri::AppHandle) {
                                 let state_macropad_state = handle.state::<Mutex<MacropadState>>();
                                 let mut state_macropad_state = state_macropad_state.lock().unwrap();
 
-                                let (new_macropad_state, action) = handle_report(
-                                    state_macropad_state.clone(),
-                                    buf,
-                                );
+                                let (new_macropad_state, action) =
+                                    handle_report(state_macropad_state.clone(), buf);
 
                                 // Update the macropad state
                                 *state_macropad_state = new_macropad_state;
