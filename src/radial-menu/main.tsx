@@ -4,9 +4,7 @@ import { RadialMenu } from "./RadialMenu";
 import { listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
-import { RadialMenuItem, ShowRadialMenuEvent } from "../types";
-
-let items: Array<RadialMenuItem> = [];
+import { ShowRadialMenuEvent } from "../types";
 
 export const radialMenuSize = 200;
 
@@ -17,8 +15,6 @@ listen<ShowRadialMenuEvent>('show-radial-menu', async (event) => {
     console.log("No radial menu found");
     return;
   }
-
-  items = event.payload.items; 
 
   let location = event.payload.location;
   await radialMenu.setPosition(new LogicalPosition(location[0] - radialMenuSize / 2, location[1] - radialMenuSize / 2));
