@@ -109,6 +109,7 @@ export function RadialMenu() {
                 boxShadow: 'none',
                 borderRadius: 0,
                 color: 'white',
+                fontFamily: 'Arial, sans-serif',
                 fontSize: '16px',
                 padding: 0,
                 cursor: 'pointer',
