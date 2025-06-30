@@ -19,7 +19,8 @@ pub mod events;
 pub mod hid;
 pub mod macropad_state;
 use crate::config::{
-    get_config_path, load_config, Action, AppConfig, ApplicationAction, ApplicationProfile,
+    get_config_path, load_config, Action, AppConfig, ApplicationProfile, Command, Operation,
+    RadialMenuItem,
 };
 use crate::hid::{handle_report, PRODUCT_ID, USAGE, USAGE_PAGE, VENDOR_ID};
 use crate::macropad_state::{ButtonState, MacropadState};
@@ -59,24 +60,19 @@ fn save_config(state: State<'_, Mutex<AppConfig>>, config_json: String) {
 }
 
 #[tauri::command]
-fn handle_action(action: ApplicationAction) {
-    match action {
-        ApplicationAction::KeyTap { .. } => {
-            handle_key_action(action);
-        }
-        ApplicationAction::MacroTap { actions } => {
-            handle_macro_tap(&actions);
-        }
-        _ => {
-            println!("Unsupported action: {action:?}");
-        }
-    }
+fn command_handler(handle: tauri::AppHandle, state: State<'_, Mutex<Enigo>>, command: Command) {
+    let mut enigo = state.lock().unwrap();
+    handle_command(&handle, &mut *enigo, &command);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Enigo actions need to share the same enigo instance
+    let enigo = Enigo::new(&Settings::default()).unwrap();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .manage(Mutex::new(enigo))
         .manage(Mutex::new(CurrentWindow::default()))
         .manage(Mutex::new(AppConfig::default()))
         .manage(Mutex::new(MacropadState {
@@ -113,7 +109,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_config,
             save_config,
-            handle_action
+            command_handler
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -252,16 +248,24 @@ fn listen_hid(handle: &tauri::AppHandle) {
                                     )
                                 };
 
-                                let state_macropad_state = handle.state::<Mutex<MacropadState>>();
-                                let mut state_macropad_state = state_macropad_state.lock().unwrap();
+                                let macropad_state = handle.state::<Mutex<MacropadState>>();
+                                let mut macropad_state = macropad_state.lock().unwrap();
 
                                 let (new_macropad_state, action) =
-                                    handle_report(state_macropad_state.clone(), buf);
+                                    handle_report(macropad_state.clone(), buf);
+
+                                let enigo = handle.state::<Mutex<Enigo>>();
+                                let mut enigo = enigo.lock().unwrap();
+                                perform_action(
+                                    handle,
+                                    &mut *enigo,
+                                    &application_profile,
+                                    macropad_state.clone(),
+                                    action,
+                                );
 
                                 // Update the macropad state
-                                *state_macropad_state = new_macropad_state;
-
-                                perform_action(handle, &application_profile, action);
+                                *macropad_state = new_macropad_state;
                             }
                             Err(e) => {
                                 // TODO: Continue on recoverable error, break on unrecoverable error, e.g disconnected device
@@ -290,7 +294,9 @@ fn listen_hid(handle: &tauri::AppHandle) {
 
 fn perform_action(
     handle: &tauri::AppHandle,
+    enigo: &mut Enigo,
     application_profile: &Option<ApplicationProfile>,
+    _macropad_state: MacropadState,
     action: Action,
 ) {
     if application_profile.is_none() {
@@ -301,22 +307,23 @@ fn perform_action(
 
     // Handle actions not in profile
     match action {
-        Action::ButtonRelease { button } => {
-            let config_action = Action::ButtonPress { button };
-            if let Some((_, application_action)) =
-                profile.actions.iter().find(|(a, _)| *a == config_action)
-            {
-                match application_action {
-                    ApplicationAction::KeyPress { key } => {
-                        let complement_action = ApplicationAction::KeyRelease {
-                            key: key.to_string(),
-                        };
-                        handle_key_action(complement_action);
+        Action::ButtonRelease { id } => {
+            // Retrieve inverse action
+            if let Some(command) = profile.get_binding(&Action::ButtonPress { id }) {
+                if let Some(_) = command.radial_menu_items {
+                    handle.emit("hide-radial-menu", ()).unwrap();
+                } else if let Some(operations) = command.operations {
+                    for operation in operations.iter().rev() {
+                        match operation {
+                            Operation::KeyPress { key } => {
+                                println!("Releasing key: {}", key);
+                                enigo
+                                    .key(key_to_enigo_key(&key), Direction::Release)
+                                    .unwrap();
+                            }
+                            _ => {}
+                        }
                     }
-                    ApplicationAction::OpenRadialMenu { .. } => {
-                        handle.emit("hide-radial-menu", ()).unwrap();
-                    }
-                    _ => {}
                 }
             }
             return;
@@ -324,89 +331,69 @@ fn perform_action(
         _ => {}
     }
 
-    // Find action in profile
-    if let Some((_, application_action)) = profile.actions.iter().find(|(a, _)| *a == action) {
-        match application_action {
-            ApplicationAction::OpenRadialMenu { items } => {
-                let enigo = Enigo::new(&Settings::default()).unwrap();
-                let mouse_location = enigo.location().unwrap();
+    if let Some(command) = profile.get_binding(&action) {
+        handle_command(handle, enigo, &command);
+    }
+}
 
-                let event = events::ShowRadialMenu {
-                    location: mouse_location,
-                    items: items.iter().map(|item| (**item).clone()).collect(),
-                };
-
-                println!("Emitting radial menu event: {:?}", event);
-                handle.emit("show-radial-menu", event).unwrap();
-            }
-            ApplicationAction::KeyPress { .. } | ApplicationAction::KeyTap { .. } => {
-                handle_key_action(application_action.clone());
-            }
-            ApplicationAction::MacroTap { actions } => {
-                handle_macro_tap(actions);
-            }
-            _ => {}
+fn handle_command(handle: &tauri::AppHandle, enigo: &mut Enigo, command: &Command) {
+    if let Some(radial_menu_items) = &command.radial_menu_items {
+        show_radial_menu(handle, radial_menu_items);
+    } else if let Some(operations) = &command.operations {
+        for operation in operations {
+            handle_operation(enigo, operation.clone());
         }
     }
 }
 
-fn handle_key_action(action: ApplicationAction) {
+fn show_radial_menu(handle: &tauri::AppHandle, items: &Vec<RadialMenuItem>) {
+    let enigo = Enigo::new(&Settings::default()).unwrap();
+    let mouse_location = enigo.location().unwrap();
+
+    let event = events::ShowRadialMenu {
+        location: mouse_location,
+        items: items.iter().map(|item| (item).clone()).collect(),
+    };
+
+    println!("Emitting radial menu event: {:?}", event);
+    handle.emit("show-radial-menu", event).unwrap();
+}
+
+fn handle_operation(enigo: &mut Enigo, operation: Operation) {
     if !matches!(
-        action,
-        ApplicationAction::KeyPress { .. }
-            | ApplicationAction::KeyTap { .. }
-            | ApplicationAction::KeyRelease { .. }
+        operation,
+        Operation::KeyPress { .. } | Operation::KeyTap { .. } | Operation::KeyRelease { .. }
     ) {
-        println!("Unsupported action: {action:?}");
         return;
     };
 
-    let mut enigo = Enigo::new(&Settings::default()).unwrap();
-
-    match action {
-        ApplicationAction::KeyTap { key } => {
+    match operation {
+        Operation::KeyTap { key } => {
             println!("Tapping key: {}", key);
             enigo.key(key_to_enigo_key(&key), Direction::Click).unwrap();
         }
-        ApplicationAction::KeyPress { key } => {
+        Operation::KeyPress { key } => {
             println!("Pressing key: {}", key);
             enigo.key(key_to_enigo_key(&key), Direction::Press).unwrap();
         }
-        ApplicationAction::KeyRelease { key } => {
+        Operation::KeyRelease { key } => {
             println!("Releasing key: {}", key);
             enigo
                 .key(key_to_enigo_key(&key), Direction::Release)
                 .unwrap();
         }
-        _ => unreachable!(),
-    }
-}
-
-fn handle_macro_tap(actions: &Vec<ApplicationAction>) {
-    let mut enigo = Enigo::new(&Settings::default()).unwrap();
-
-    for action in actions.iter() {
-        match action {
-            ApplicationAction::KeyPress { key } => {
-                println!("Pressing key: {}", key);
-                enigo.key(key_to_enigo_key(&key), Direction::Press).unwrap();
+        Operation::Delay { ms } => {
+            std::thread::sleep(std::time::Duration::from_millis(ms));
+        }
+        Operation::Repeat { times, operations } => {
+            for _ in 0..times {
+                for operation in operations.clone() {
+                    handle_operation(enigo, operation);
+                }
             }
-            ApplicationAction::KeyRelease { key } => {
-                println!("Releasing key: {}", key);
-                enigo
-                    .key(key_to_enigo_key(&key), Direction::Release)
-                    .unwrap();
-            }
-            ApplicationAction::KeyTap { key } => {
-                println!("Tapping key: {}", key);
-                enigo.key(key_to_enigo_key(&key), Direction::Click).unwrap();
-            }
-            ApplicationAction::Delay { ms } => {
-                std::thread::sleep(std::time::Duration::from_millis(*ms));
-            }
-            _ => {
-                println!("Unsupported action: {action:?}");
-            }
+        }
+        _ => {
+            println!("Unsupported operation: {operation:?}");
         }
     }
 }

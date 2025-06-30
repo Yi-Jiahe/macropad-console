@@ -29,7 +29,7 @@ export default function ApplicationConfigElement({ applicationConfig, saveConfig
           } else if (newValue && newValue.inputValue) {
             // Create a new application profile
             applicationConfig.applicationProfiles[newValue.inputValue] = {
-              actions: [],
+              bindings: [],
             };
             saveConfig(JSON.stringify(applicationConfig));
             setSelectedProfileName(newValue.inputValue);

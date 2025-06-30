@@ -10,10 +10,7 @@ mod config_test {
             application_profiles: HashMap::from_iter(vec![(
                 "test_profile".to_string(),
                 ApplicationProfile {
-                    actions: vec![(
-                        Action::ButtonPress { button: 1 },
-                        ApplicationAction::OpenRadialMenu { items: vec![] },
-                    )],
+                    bindings: vec![()],
                 },
             )]),
         };
@@ -28,12 +25,7 @@ mod config_test {
                 r#"{
                 "applicationProfiles": {
                     "test_profile": {
-                        "actions": [
-                          [
-                            { "buttonPress": { "button": 1 } },
-                            { "openRadialMenu": { "items": [] } }
-                          ]
-                        ]
+                        "bindings": []
                     }
                 }
             }"#,

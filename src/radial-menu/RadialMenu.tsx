@@ -63,7 +63,7 @@ export function RadialMenu() {
 
       console.log(`Mouse is in section ${section}:`, item?.label);
 
-      invoke('handle_action', { action: item?.action });
+      invoke('command_handler', { command: item?.command });
     });
 
     return () => {
@@ -95,12 +95,8 @@ export function RadialMenu() {
           const y = radius + buttonRadius * Math.sin(angle);
 
           return (
-            <button
+            <span
               key={i}
-              onClick={() => {
-                // Handle the action for the item
-                console.log(`Action for ${e.label}:`, e.action);
-              }}
               style={{
                 position: 'absolute',
                 left: `${x}px`,
@@ -124,7 +120,7 @@ export function RadialMenu() {
               }}
             >
               {e.label}
-            </button>
+            </span>
           );
         })}
       </div>

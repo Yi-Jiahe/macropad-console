@@ -10,9 +10,7 @@ import Typography from "@mui/material/Typography";
 import Table from '@mui/material/Table';
 import TableRow from '@mui/material/TableRow';
 import TableCell from '@mui/material/TableCell';
-import List from "@mui/material/List";
-import ListItem from "@mui/material/ListItem";
-import ListItemButton from "@mui/material/ListItemButton";
+import Chip from "@mui/material/Chip";
 
 export default function ApplicationProfileElement({
   applicationConfig,
@@ -61,46 +59,27 @@ export default function ApplicationProfileElement({
       <Box style={{ display: "flex" }}>
         <Box style={{ flexGrow: 2 }}>
           <Typography variant="h6">Bindings</Typography>
+          <Typography variant="body1">
+            Bindings are evaluated in the order that they are listed.
+          </Typography>
           <Table key={profileName}>
-            {applicationProfile.actions.map(([action, applicationAction], index) => (
+            {applicationProfile.bindings.map(([action, command], index) => (
               <TableRow key={index}
                 hover>
                 <TableCell>
                   {action.buttonPress &&
-                    <Typography variant="body1">Button Press {action.buttonPress.button}</Typography>}
+                    <Chip label={`BTN_${action.buttonPress.id}`} />}
                   {action.encoderIncrement &&
-                    <Typography variant="body1">Encoder Increment {action.encoderIncrement.id}</Typography>}
+                    <Chip label={`ENC_${action.encoderIncrement.id}_INC`} />}
                   {action.encoderDecrement &&
-                    <Typography variant="body1">Encoder Decrement {action.encoderDecrement.id}</Typography>}
+                    <Chip label={`ENC_${action.encoderDecrement.id}_DEC`} />}
                 </TableCell>
                 <TableCell>
-                  {applicationAction.openRadialMenu &&
-                    <Typography variant="body1">Radial Menu</Typography>}
-                  {applicationAction.macroTap &&
-                    <Typography variant="body1">Macro Tap</Typography>}
-                  {applicationAction.keyTap &&
-                    <Typography variant="body1">Key Tap {applicationAction.keyTap.key}</Typography>}
+                  <Typography variant="body1">{command.displayName}</Typography>
                 </TableCell>
               </TableRow>
             ))}
           </Table>
-        </Box>
-        <Box style={{ flexGrow: 1 }}>
-          <Typography variant="h6">Actions</Typography>
-          <List>
-            {applicationProfile.actions.map(([_, applicationAction], index) => (
-              <ListItem>
-                <ListItemButton onClick={() => { }}>
-                  {applicationAction.openRadialMenu &&
-                    <Typography variant="body1">Radial Menu</Typography>}
-                  {applicationAction.macroTap &&
-                    <Typography variant="body1">Macro Tap</Typography>}
-                  {applicationAction.keyTap &&
-                    <Typography variant="body1">Key Tap {applicationAction.keyTap.key}</Typography>}
-                </ListItemButton>
-              </ListItem>
-            ))}
-          </List>
         </Box>
       </Box>
     </Box>

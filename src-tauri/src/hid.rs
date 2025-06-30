@@ -40,13 +40,13 @@ pub fn handle_report(
                 new_macropad_state.buttons[i] = ButtonState::Held {
                     pressed_at: std::time::Instant::now(),
                 };
-                action = Action::ButtonPress { button: i as u8 };
+                action = Action::ButtonPress { id: i as u8 };
             }
             (ButtonState::Held { pressed_at: _ }, false) => {
                 // Button was released
                 println!("Button {} released", i);
                 new_macropad_state.buttons[i] = ButtonState::None; // Reset to none state
-                action = Action::ButtonRelease { button: i as u8 };
+                action = Action::ButtonRelease { id: i as u8 };
             }
             _ => {}
         }

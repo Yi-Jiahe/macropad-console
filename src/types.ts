@@ -8,7 +8,7 @@ export type ApplicationConfig = {
 }
 
 export type ApplicationProfile = {
-  actions: Array<[Action, ApplicationAction]>
+  bindings: Array<[Action, Command]>
 }
 
 // Actions
@@ -18,7 +18,7 @@ export type EncoderIds = 0;
 
 export type Action = {
   buttonPress?: {
-    button: ButtonIds;
+    id: ButtonIds;
   }
   encoderIncrement?: {
     id: EncoderIds;
@@ -28,12 +28,13 @@ export type Action = {
   }
 }
 
-// Application Actions
+export type Command = {
+  displayName: string;
+  radialMenuItems?: Array<RadialMenuItem>;
+  operations?: Array<Operation>;
+}
 
-export type ApplicationAction = {
-  openRadialMenu?: {
-    items: Array<RadialMenuItem>;
-  }
+export type Operation = {
   keyPress?: {
     key: string;
   };
@@ -46,22 +47,14 @@ export type ApplicationAction = {
   delay?: {
     ms: number;
   };
-  macroTap?: {
-    actions: Array<ApplicationAction>;
-  }
 }
 
 export type RadialMenuItem = {
   label: string;
-  action: ApplicationAction;
+  command: Command;
 }
 
 // Events
-
-export type OpenRadialMenu = {
-  items: Array<RadialMenuItem>;
-}
-
 
 export type ShowRadialMenuEvent = {
   location: [number, number];
