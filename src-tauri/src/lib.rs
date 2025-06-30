@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Mutex;
 
 use anyhow::Result;
@@ -313,9 +314,17 @@ fn perform_action(
                 if let Some(_) = command.radial_menu_items {
                     handle.emit("hide-radial-menu", ()).unwrap();
                 } else if let Some(operations) = command.operations {
+                    let mut released_keys = HashSet::new();
                     for operation in operations.iter().rev() {
                         match operation {
+                            Operation::KeyRelease { key } => {
+                                released_keys.insert(key.clone());
+                            }
                             Operation::KeyPress { key } => {
+                                if released_keys.contains(key) {
+                                    released_keys.remove(key);
+                                    continue;
+                                }
                                 println!("Releasing key: {}", key);
                                 enigo
                                     .key(key_to_enigo_key(&key), Direction::Release)
@@ -360,13 +369,6 @@ fn show_radial_menu(handle: &tauri::AppHandle, items: &Vec<RadialMenuItem>) {
 }
 
 fn handle_operation(enigo: &mut Enigo, operation: Operation) {
-    if !matches!(
-        operation,
-        Operation::KeyPress { .. } | Operation::KeyTap { .. } | Operation::KeyRelease { .. }
-    ) {
-        return;
-    };
-
     match operation {
         Operation::KeyTap { key } => {
             println!("Tapping key: {}", key);
