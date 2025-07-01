@@ -7,6 +7,7 @@ import TableRow from "@mui/material/TableRow";
 import { TableCell } from "@mui/material";
 
 export default function CommandElement({ command, appendPath }: { command: Command, appendPath: (index: number) => void }) {
+  // TODO: Figure out how to display repeats
   return (
     <Box>
       <Typography variant="h6">{command.displayName}</Typography>
@@ -26,6 +27,7 @@ export default function CommandElement({ command, appendPath }: { command: Comma
             {operation.keyPress && <Chip label={`KeyPress ${operation.keyPress.key}`} />}
             {operation.keyTap && <Chip label={`KeyTap ${operation.keyTap.key}`} />}
             {operation.delay && <Chip label={`Delay ${operation.delay.ms}ms`} />}
+            {operation.repeat && <Chip label={`Repeat ${operation.repeat.times} times`} />}
           </Typography>
         ))}
     </Box>

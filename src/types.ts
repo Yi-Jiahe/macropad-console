@@ -47,6 +47,10 @@ export type Operation = {
   delay?: {
     ms: number;
   };
+  repeat?: {
+    times: number;
+    operations: Array<Operation>;
+  };
 }
 
 export type RadialMenuItem = {
