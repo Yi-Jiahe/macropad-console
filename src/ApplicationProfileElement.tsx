@@ -26,7 +26,7 @@ export default function ApplicationProfileElement({
   setSelectedProfile: (profileName: string | null) => void
 }) {
   const [openDeleteApplicationProfile, setOpenDeleteApplicationProfile] = useState(false);
-  const [path, setPath] = useState<Array<number>>([]);
+  const [path, setPath] = useState<Array<Array<number | string>>>([]);
   const [command, setCommand] = useState<Command | null>(null);
   const applicationProfile = applicationConfig.applicationProfiles[profileName];
 
@@ -39,14 +39,17 @@ export default function ApplicationProfileElement({
       return;
     }
 
-    let command = applicationProfile.bindings[path[0]][1];
-    for (let i = 1; i < path.length; i++) {
-      if (command.radialMenuItems) {
-        command = command.radialMenuItems[path[i]].command;
+    let value: any = applicationConfig.applicationProfiles[profileName].bindings;
+
+    for (let i = 0; i < path.length; i++) {
+      for (let j = 0; j < path[i].length; j++) {
+        const index = path[i][j];
+        value = value[index];
+        console.log(value);
       }
     }
 
-    setCommand(command);
+    setCommand(value);
   }, [path])
 
   return (
@@ -70,14 +73,14 @@ export default function ApplicationProfileElement({
       </Dialog>
       <Box style={{ display: "flex", justifyContent: "space-between" }}>
         <Breadcrumbs separator=">">
-          <Typography onClick={() => setPath([])}>{profileName}</Typography>
+          <Typography onClick={() => setPath([])}>{`${profileName} > bindings`}</Typography>
           {path.map((crumb, index) => (
             <Typography key={index}
               onClick={() => {
                 setPath(path.slice(0, index));
                 setCommand(null);
               }}>
-              {crumb}
+              {crumb.join(" > ")}
             </Typography>
           ))}
         </Breadcrumbs>
@@ -93,14 +96,14 @@ export default function ApplicationProfileElement({
             Bindings are evaluated in the order that they are listed.
           </Typography>
           <Table key={profileName}>
-            {applicationProfile.bindings.map(([action, command], index) => (
+            {applicationProfile.bindings.map(([keyCombination, command], index) => (
               <TableRow key={index}
                 onClick={() => {
-                  setPath([index]);
+                  setPath([[index, 1]]);
                 }}
                 hover>
                 <TableCell>
-                  <KeyCombination KeyCombination={action} />
+                  <KeyCombination KeyCombination={keyCombination} />
                 </TableCell>
                 <TableCell>
                   <Typography variant="body1">{command.displayName}</Typography>
@@ -110,22 +113,20 @@ export default function ApplicationProfileElement({
           </Table>
         </Box>
         : <Box>
-          <KeyCombination KeyCombination={applicationProfile.bindings[path[0]][0]} />
-          <CommandElement command={command} appendPath={(i: number) => setPath([...path, i])} />
+          <KeyCombination KeyCombination={applicationProfile.bindings[path[0][0] as number][0]} />
+          <CommandElement command={command} appendPath={(indexes: Array<number | string>) => setPath([...path, indexes])} />
         </Box>}
     </Box>
   );
 }
 
-function KeyCombination({ KeyCombination }: { KeyCombination: Action }) {
+function KeyCombination({ KeyCombination }: { KeyCombination: string }) {
+  const keys = KeyCombination.split("+");
   return (
     <Box>
-      {KeyCombination.buttonPress &&
-        <Chip label={`BTN_${KeyCombination.buttonPress.id}`} />}
-      {KeyCombination.encoderIncrement &&
-        <Chip label={`ENC_${KeyCombination.encoderIncrement.id}_INC`} />}
-      {KeyCombination.encoderDecrement &&
-        <Chip label={`ENC_${KeyCombination.encoderDecrement.id}_DEC`} />}
+      {keys.map((key, index) => (
+        <Chip key={index} label={key} color={index === keys.length - 1 ? "primary" : "secondary"}/>
+      ))}
     </Box>
   );
 }

@@ -34,3 +34,7 @@ windows = { version = "0.61.3", features = [
     "Win32_UI_WindowsAndMessaging"
 ] }
 regex = "1.11.1"
+
+[dev-dependencies]
+serde_test = "1.0.177"
+paste = "=1.0.15"

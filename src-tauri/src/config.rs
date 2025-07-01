@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 use dirs::home_dir;
-use serde::{Deserialize, Serialize};
+use serde::{ser, de, Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -13,32 +13,89 @@ pub struct AppConfig {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApplicationProfile {
-    pub bindings: Vec<(Action, Command)>,
+    pub bindings: Vec<(KeyCombination, Command)>,
 }
 
 impl ApplicationProfile {
-    pub fn get_binding(&self, action: &Action) -> Option<Command> {
+    pub fn get_binding(&self, key_combination: &KeyCombination) -> Option<Command> {
         self.bindings
             .iter()
-            .find(|(a, _)| a == action)
+            .find(|(a, _)| a == key_combination)
             .map(|(_, b)| b.clone())
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Command {
-    pub display_name: String,
-    pub operations: Option<Vec<Operation>>,
-    pub radial_menu_items: Option<Vec<RadialMenuItem>>,
+#[derive(Debug, Clone)]
+pub struct KeyCombination {
+    // Button ids
+    pub modifiers: Option<HashSet<u8>>,
+    pub action: Action,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RadialMenuItem {
-    pub label: String,
-    pub command: Command,
+impl Serialize for KeyCombination {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut s = "".to_string();
+
+        if let Some(modifiers) = &self.modifiers {
+            let mut m = modifiers.clone().into_iter().collect::<Vec<u8>>();
+            m.sort();
+            let modifiers = m.iter().map(|x| format!("BTN_{}+", x)).collect::<Vec<String>>().join("");
+            s = modifiers;
+        }
+
+        match self.action {
+            Action::ButtonPress { id } => return serializer.serialize_str(&format!("{}BTN_{}", s, id)),
+            Action::EncoderDecrement { id } => return serializer.serialize_str(&format!("{}ENC_{}_DEC", s, id)),
+            Action::EncoderIncrement { id } => return serializer.serialize_str(&format!("{}ENC_{}_INC", s, id)),
+            _ => return Err(ser::Error::custom("Invalid action")) 
+        }
+    }
 }
+
+impl<'de> Deserialize<'de> for KeyCombination {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let keys = s.split("+").collect::<Vec<&str>>();
+        let n = keys.len();
+
+        let mut c = match keys[n - 1].split("_").collect::<Vec<&str>>()[..] {
+            ["BTN", x] => KeyCombination { modifiers: None, action: Action::ButtonPress { id: x.parse().unwrap() } },
+            ["ENC", x, "DEC"] => KeyCombination { modifiers: None, action: Action::EncoderDecrement { id: x.parse().unwrap() } },
+            ["ENC", x, "INC"] => KeyCombination { modifiers: None, action: Action::EncoderIncrement { id: x.parse().unwrap() } }, 
+            _ => return Err(de::Error::custom("Invalid action")),
+        };
+
+        if n == 1 {
+            return Ok(c);
+        }
+
+        let mut modifiers = HashSet::new();
+        for k in keys.iter().take(n - 1) {
+            let id = match k.split("_").collect::<Vec<&str>>()[..] {
+                ["BTN", x] => x.parse().unwrap(),
+                _ => return Err(de::Error::custom("Invalid key")),
+            };
+            modifiers.insert(id);
+        }
+
+        c.modifiers = Some(modifiers);
+        Ok(c)
+    }
+}
+
+impl PartialEq for KeyCombination {
+    fn eq(&self, other: &Self) -> bool {
+        self.modifiers == other.modifiers && self.action == other.action
+    }
+}
+
+impl Eq for KeyCombination {}
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq, Hash)]
 #[serde(rename_all = "camelCase")]
@@ -50,6 +107,14 @@ pub enum Action {
     #[default]
     None,
     ButtonRelease { id: u8 },
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Command {
+    pub display_name: String,
+    pub operations: Option<Vec<Operation>>,
+    pub radial_menu_items: Option<Vec<RadialMenuItem>>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -66,6 +131,13 @@ pub enum Operation {
     #[default]
     None,
     KeyRelease { key: String },
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RadialMenuItem {
+    pub label: String,
+    pub command: Command,
 }
 
 pub fn get_config_path() -> std::path::PathBuf {

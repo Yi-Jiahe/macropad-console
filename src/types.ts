@@ -8,7 +8,7 @@ export type ApplicationConfig = {
 }
 
 export type ApplicationProfile = {
-  bindings: Array<[Action, Command]>
+  bindings: Array<[string, Command]>
 }
 
 // Actions

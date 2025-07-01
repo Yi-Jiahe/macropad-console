@@ -6,7 +6,7 @@ import Chip from "@mui/material/Chip";
 import TableRow from "@mui/material/TableRow";
 import { TableCell } from "@mui/material";
 
-export default function CommandElement({ command, appendPath }: { command: Command, appendPath: (index: number) => void }) {
+export default function CommandElement({ command, appendPath }: { command: Command, appendPath: (indexes: Array<number | string>) => void }) {
   // TODO: Figure out how to display repeats
   return (
     <Box>
@@ -14,7 +14,7 @@ export default function CommandElement({ command, appendPath }: { command: Comma
       {command.radialMenuItems &&
         <Table>
           {command.radialMenuItems.map((item, index) => (
-            <TableRow key={index} onClick={() => appendPath(index)}>
+            <TableRow key={index} onClick={() => appendPath(["radialMenuItems", index, "command"])}>
               <TableCell>{item.label}</TableCell>
               <TableCell>{item.command.displayName}</TableCell>
             </TableRow>

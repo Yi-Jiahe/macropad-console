@@ -20,8 +20,8 @@ pub mod events;
 pub mod hid;
 pub mod macropad_state;
 use crate::config::{
-    get_config_path, load_config, Action, AppConfig, ApplicationProfile, Command, Operation,
-    RadialMenuItem,
+    get_config_path, load_config, Action, AppConfig, ApplicationProfile, Command, KeyCombination,
+    Operation, RadialMenuItem,
 };
 use crate::hid::{handle_report, PRODUCT_ID, USAGE, USAGE_PAGE, VENDOR_ID};
 use crate::macropad_state::{ButtonState, MacropadState};
@@ -297,20 +297,47 @@ fn perform_action(
     handle: &tauri::AppHandle,
     enigo: &mut Enigo,
     application_profile: &Option<ApplicationProfile>,
-    _macropad_state: MacropadState,
+    macropad_state: MacropadState,
     action: Action,
 ) {
     if application_profile.is_none() {
         return;
     }
-
     let profile = application_profile.as_ref().unwrap();
+
+    // Create a set of held button ids
+    let mut modifiers: HashSet<u8> = macropad_state
+        .buttons
+        .iter()
+        .enumerate()
+        .filter_map(|(id, state)| {
+            if let ButtonState::Held { .. } = state {
+                Some(id as u8)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if let Action::ButtonRelease { id } = action {
+        modifiers.remove(&id);
+    }
+
+    let modifiers = if modifiers.is_empty() {
+        None
+    } else {
+        Some(modifiers)
+    };
 
     // Handle actions not in profile
     match action {
         Action::ButtonRelease { id } => {
             // Retrieve inverse action
-            if let Some(command) = profile.get_binding(&Action::ButtonPress { id }) {
+            let key_combination = KeyCombination {
+                modifiers,
+                action: Action::ButtonPress { id },
+            };
+            if let Some(command) = profile.get_binding(&key_combination) {
                 if let Some(_) = command.radial_menu_items {
                     handle.emit("hide-radial-menu", ()).unwrap();
                 } else if let Some(operations) = command.operations {
@@ -340,7 +367,8 @@ fn perform_action(
         _ => {}
     }
 
-    if let Some(command) = profile.get_binding(&action) {
+    let key_combination = KeyCombination { modifiers, action };
+    if let Some(command) = profile.get_binding(&key_combination) {
         handle_command(handle, enigo, &command);
     }
 }
