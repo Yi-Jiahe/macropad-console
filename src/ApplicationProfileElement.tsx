@@ -1,4 +1,4 @@
-import { Action, ApplicationConfig, Command } from "./types";
+import { ApplicationConfig, Command } from "./types";
 import { useEffect, useState } from "react";
 import Button from "@mui/material/Button";
 import Dialog from "@mui/material/Dialog";
@@ -8,11 +8,31 @@ import DialogActions from "@mui/material/DialogActions";
 import Box from "@mui/material/Box";
 import Breadcrumbs from "@mui/material/Breadcrumbs";
 import Typography from "@mui/material/Typography";
-import Table from '@mui/material/Table';
-import TableRow from '@mui/material/TableRow';
-import TableCell from '@mui/material/TableCell';
 import Chip from "@mui/material/Chip";
 import CommandElement from "./CommandElement";
+import Divider from "@mui/material/Divider";
+import List from "@mui/material/List";
+import ListItem from "@mui/material/ListItem";
+
+const bindingDividerStyle = {
+  paddingTop: 8,
+  marginBottom: 8,
+  cursor: "pointer",
+};
+
+function BindingDivider({ index, hoveredDividerIndex, setHoveredDividerIndex }: { index: number, hoveredDividerIndex: number | null, setHoveredDividerIndex: (index: number | null) => void }) {
+  return (
+    <Divider
+      style={bindingDividerStyle}
+      onClick={() => console.log(`Clicked ${index}`)}
+      onMouseEnter={() => setHoveredDividerIndex(index)}
+      onMouseLeave={() => setHoveredDividerIndex(null)}
+      component="li">
+      {(hoveredDividerIndex !== null && hoveredDividerIndex === index) &&
+        <Chip label="+" style={{ zIndex: 1, position: "absolute", transform: "translate(-50%, -50%)" }} />}
+    </Divider>
+  );
+}
 
 export default function ApplicationProfileElement({
   applicationConfig,
@@ -26,6 +46,7 @@ export default function ApplicationProfileElement({
   setSelectedProfile: (profileName: string | null) => void
 }) {
   const [openDeleteApplicationProfile, setOpenDeleteApplicationProfile] = useState(false);
+  const [hoveredDividerIndex, setHoveredDividerIndex] = useState<number | null>(null);
   const [path, setPath] = useState<Array<Array<number | string>>>([]);
   const [command, setCommand] = useState<Command | null>(null);
   const applicationProfile = applicationConfig.applicationProfiles[profileName];
@@ -95,22 +116,22 @@ export default function ApplicationProfileElement({
           <Typography variant="body1">
             Bindings are evaluated in the order that they are listed.
           </Typography>
-          <Table key={profileName}>
-            {applicationProfile.bindings.map(([keyCombination, command], index) => (
-              <TableRow key={index}
-                onClick={() => {
-                  setPath([[index, 1]]);
-                }}
-                hover>
-                <TableCell>
-                  <KeyCombination KeyCombination={keyCombination} />
-                </TableCell>
-                <TableCell>
+          <List key={profileName}>
+            {applicationProfile.bindings.map(([keyCombination, command], index) => {
+              return [
+                <BindingDivider key={`divider-${index}`} index={index} hoveredDividerIndex={hoveredDividerIndex} setHoveredDividerIndex={setHoveredDividerIndex} />,
+                <ListItem key={index}
+                  onClick={() => {
+                    setPath([[index, 1]]);
+                  }}>
+                  <KeyCombination KeyCombination={keyCombination} style={{ width: `300px` }} />
                   <Typography variant="body1">{command.displayName}</Typography>
-                </TableCell>
-              </TableRow>
-            ))}
-          </Table>
+                </ListItem>
+              ]
+            }
+            )}
+            <BindingDivider index={applicationProfile.bindings.length} hoveredDividerIndex={hoveredDividerIndex} setHoveredDividerIndex={setHoveredDividerIndex} />
+          </List>
         </Box>
         : <Box>
           <KeyCombination KeyCombination={applicationProfile.bindings[path[0][0] as number][0]} />
@@ -120,12 +141,12 @@ export default function ApplicationProfileElement({
   );
 }
 
-function KeyCombination({ KeyCombination }: { KeyCombination: string }) {
+function KeyCombination({ KeyCombination, ...props }: { KeyCombination: string, [key: string]: any }) {
   const keys = KeyCombination.split("+");
   return (
-    <Box>
+    <Box {...props}>
       {keys.map((key, index) => (
-        <Chip key={index} label={key} color={index === keys.length - 1 ? "primary" : "secondary"}/>
+        <Chip key={index} label={key} color={index === keys.length - 1 ? "primary" : "secondary"} />
       ))}
     </Box>
   );
