@@ -1,7 +1,9 @@
+use std::fs;
 use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 use dirs::home_dir;
+
 use serde::{ser, de, Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -150,6 +152,14 @@ pub fn get_config_path() -> std::path::PathBuf {
 pub fn load_config() -> Result<AppConfig> {
     let config_path = get_config_path();
     dbg!(&config_path);
+    if !fs::metadata(&config_path).is_ok() {
+        // Create directory if it doesn't exist
+        fs::create_dir_all(config_path.parent().unwrap())?;
+        // Create config file
+        fs::File::create(&config_path)?;
+        // Write default config
+        fs::write(&config_path, serde_json::to_string(&AppConfig::default()).unwrap()).unwrap();
+    }
     let config = std::fs::read_to_string(config_path)?;
     Ok(serde_json::from_str(&config)?)
 }
