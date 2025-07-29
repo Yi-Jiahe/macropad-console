@@ -1,5 +1,5 @@
 import { ApplicationConfig, ApplicationProfile } from "./types";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Autocomplete, { createFilterOptions } from "@mui/material/Autocomplete";
 import TextField from "@mui/material/TextField";
 import Box from "@mui/material/Box";
